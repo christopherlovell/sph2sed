@@ -1,0 +1,5 @@
+#$ -S /bin/bash
+#$ -cwd
+#$ -j y
+
+python Create_cloudy_atmosphere.py

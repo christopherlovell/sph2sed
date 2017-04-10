@@ -1,0 +1,11 @@
+
+The data pipeline contained herein provide a means of processing a given Stellar Population Synthesis (SPS) model through the Cloudy spectral synthesis code.
+
+1. /Input_SPS/Create_cloudy_atmosphere.py generates a cloudy atmosphere grid for each model and places it in the specified cloudy directory. It also creates input files for all parameter space in /Cloudy_input, and associated batchscripts for running them all.
+
+2. /Cloudy_input contains a folder for each SPS model containing a Cloudy input file for each parameter configuration. They can be run individually, or all at once using the batch script.
+
+3. /Cloudy_output contains the continuum and line information from each Cloudy run for each SPS model.
+
+
+

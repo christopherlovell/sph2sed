@@ -1,0 +1,11 @@
+#!/bin/tcsh
+#BSUB -L /bin/tcsh
+#BSUB -q cosma
+#BSUB -P durham
+#BSUB -J sub_part_z8
+#BSUB -W 28:00
+#BSUB -n 1
+#BSUB -o subpart_output.%J
+#BSUB -e subpart_error.%J
+
+python subhalo_star_ids.py 
