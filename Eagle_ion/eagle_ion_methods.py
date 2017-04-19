@@ -1,6 +1,71 @@
 import numpy as np
 from bisect import bisect
 
+c = 2.99792E8
+
+def calculate_xi_ion(Lnu, frequency):
+    """
+    Calculate LyC photon production efficiency
+    
+    Args:
+        Lnu: Lsol Hz^-1
+        frequency: Hz
+
+    Returns:
+        xi_ion: units [erg^-1 Hz]
+    """
+    
+    # filter nan sed values
+    mask = ~np.isnan(Lnu)
+    Lnu = Lnu[mask]
+    frequency = frequency[mask]
+
+    Lnu_0p15 = Lnu[np.abs((c * 1e6 / frequency) - 0.15).argmin()]
+
+    integ = Lnu / (6.626e-34 * frequency * 1e7) # energy in ergs
+    integ /= Lnu_0p15
+
+    b = c / 912e-10
+    limits = frequency>b
+
+    return np.trapz(integ[limits][::-1],frequency[limits][::-1])
+
+
+def calculate_sed(subhalos, raw_sed, Z, a):
+    """
+    Calculate composite sed for an array of star particles.
+    
+    Args:
+        subhalos: list of subhalos, each containing a dictionary containing the following: '
+        raw_sed: SED array of shape metallicity * age * wavelength
+    
+    Returns:
+        sed: with the same length as raw_sed, units [ergs s^-1 Hz^-1]
+    """
+    
+    sed = [[] for i in range(len(subhalos))]
+    
+    for i in range(len(subhalos)):
+        
+        # ids = subhalos[i]['idx']
+        metals = subhalos[i]['stellar metallicity']
+        imass = subhalos[i]['initial stellar mass']
+        age = subhalos[i]['stellar age']
+        mass = subhalos[i]['stellar mass']
+        
+        w = np.zeros(raw_sed.shape[:2])  # initialise empty weights array of same shape as raw_sed
+
+        # update weights
+        for j in range(len(metals)): # loop through particles
+            w = update_weights(w, Z, a[::-1], metals[j], age[j], imass[j])
+            
+        
+        sed_temp = np.matmul(w,raw_sed) # multiply sed by weights grid
+        sed[i] = sed_temp.sum(axis=(0,1)) # combine single composite spectrum
+        
+    
+    return sed # ergs s^-1 Hz^-1
+
 
 def update_weights_raw(w,z,a,age,metal,mass):
     """
@@ -83,7 +148,4 @@ def calculate_spectrum(halo,star_idx,sed_grid,age,metals,mass,x,y):
         w = update_weights(w,x,y,age[i],metals[i],mass[i])
 
     return([np.nansum(w.transpose()*sed_grid[i]) for i in range(len(sed_grid))])  # apply weights to sed spectrum
-
-
-
 
