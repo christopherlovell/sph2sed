@@ -10,7 +10,7 @@ import subprocess
 
 ## ------- Custom Parameters
 cloudy_directory = '~/c13.03/' # '/home/chris/src/c13.03/'
-wd = '/research/astro/highz/EagleAnalysis/SPS/'  # working directory
+wd = '/research/astro/highz/Students/Chris/sed_modelling/'  # working directory
 
 models = ['BC03_Padova1994_Salpeter_lr','BPASSv2_imf135all_100','BPASSv2_imf135all_100-bin','FSPS_default_Salpeter','M05_Salpeter_rhb','P2_Salpeter_ng']
 
@@ -179,7 +179,7 @@ for model in models:
     output = []    
 
     output.append('#$ -S /bin/bash\n')
-    output.append('#$ -wd /research/astro/highz/EagleAnalysis/SPS/Cloudy_input/'+model+'\n')
+    output.append('#$ -wd %sCloudy_input/%s\n'%(wd,model))
     output.append('#$ -j y\n')
     output.append('#$ -t 1-'+str(sed.shape[0]*sed.shape[1])+'\n')
     output.append('#$ -o '+cloudy_output_dir+'\n')
