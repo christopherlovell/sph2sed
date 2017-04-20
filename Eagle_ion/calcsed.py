@@ -36,11 +36,13 @@ def calculate_sed(subhalos, raw_sed, Z, a):
     Calculate composite sed for an array of star particles.
     
     Args:
-        subhalos: list of subhalos, each containing a dictionary containing the following: '
-        raw_sed: SED array of shape metallicity * age * wavelength
+        subhalos - list of subhalos, each containing a dictionary containing the following: '
+        raw_sed - SED array (Z * a * wavelength)
+        Z - metallicity array
+        a - age array
     
     Returns:
-        sed: with the same length as raw_sed, units [ergs s^-1 Hz^-1]
+        sed: with the same length as raw_sed, returned with the same units
     """
     
     sed = [[] for i in range(len(subhalos))]
@@ -64,39 +66,24 @@ def calculate_sed(subhalos, raw_sed, Z, a):
         sed[i] = sed_temp.sum(axis=(0,1)) # combine single composite spectrum
         
     
-    return sed # ergs s^-1 Hz^-1
+    return sed
 
 
-def update_weights_raw(w,z,a,age,metal,mass):
-    """
-    Update weight matrix for a given particle. Values outside array sizes return an error.    
-    N.B. make sure both z and a lists are sorted ascendingly
-    """
-
-    ilow = bisect(z,metal) - 1
-    ifrac = (metal-z[(ilow)])/(z[ilow+1]-z[ilow])
-
-    jlow = bisect(a,age)-1
-    jfrac = (age-a[(jlow)])/(a[jlow+1]-a[jlow])
-
-    w[ilow,jlow] += mass * (1-ifrac) * (1-jfrac)
-    w[ilow+1,jlow] += mass * ifrac * (1-jfrac)
-    w[ilow,jlow+1] += mass * (1-ifrac) * jfrac
-    w[ilow+1,jlow+1] += mass * ifrac * jfrac
-
-    return(w)
-
-
-def update_weights(w,z,a,metal,age,mass):
+def update_weights(w, z, a, metal, age,mass):
     """
     Update weight matrix for a given particle. Values outside array sizes assign weights to edges of array.    
-    N.B. make sure both z and a lists are sorted ascendingly
+    N.B. ensure both z and a arrays are sorted ascendingly
 
-    w: weights array, empty (zeroed) numpy array (z*a)
-    z: metallicity array (1D)
-    a: age array(1D)
-    metal, age mass: particle arrays for metallicity, age and mass
+    Args:
+        w - weights array, size (z*a)
+        z - 1D metallicity array (sorted ascendingly) [Zsol]
+        a - 1d age array (sorted ascendingly) []
+        metal - particle metallicity [Zsol]
+        age - particle age []
+        mass - particle mass [10^6 Msol]
 
+    Returns:
+        w - updated weights array (z*a)
     """
 
     ilow = bisect(z,metal)
@@ -136,16 +123,36 @@ def update_weights(w,z,a,metal,age,mass):
     return(w)
 
 
-def calculate_spectrum(halo,star_idx,sed_grid,age,metals,mass,x,y):
-    """
-    for a given halo index (halo) loop through star indices (star_idx) and calculate grid weights.
-    Apply weights to full SED
-    """
-    ## calculate weights for given subhalo
-    w = np.zeros((len(x),len(y)))  # initialise empty weights array
-    for i in star_idx[halo]:  # loop through halo particles
-        # filter star particle attributes for given subhalo
-        w = update_weights(w,x,y,age[i],metals[i],mass[i])
+#def update_weights_raw(w,z,a,age,metal,mass):
+#    """
+#    Update weight matrix for a given particle. Values outside array sizes return an error.    
+#    N.B. make sure both z and a lists are sorted ascendingly
+#    """
+#
+#    ilow = bisect(z,metal) - 1
+#    ifrac = (metal-z[(ilow)])/(z[ilow+1]-z[ilow])
+#
+#    jlow = bisect(a,age)-1
+#    jfrac = (age-a[(jlow)])/(a[jlow+1]-a[jlow])
+#
+#    w[ilow,jlow] += mass * (1-ifrac) * (1-jfrac)
+#    w[ilow+1,jlow] += mass * ifrac * (1-jfrac)
+#    w[ilow,jlow+1] += mass * (1-ifrac) * jfrac
+#    w[ilow+1,jlow+1] += mass * ifrac * jfrac
+#
+#    return(w)
 
-    return([np.nansum(w.transpose()*sed_grid[i]) for i in range(len(sed_grid))])  # apply weights to sed spectrum
+
+# def calculate_spectrum(halo,star_idx,sed_grid,age,metals,mass,x,y):
+#     """
+#     for a given halo index (halo) loop through star indices (star_idx) and calculate grid weights.
+#     Apply weights to full SED
+#     """
+#     ## calculate weights for given subhalo
+#     w = np.zeros((len(x),len(y)))  # initialise empty weights array
+#     for i in star_idx[halo]:  # loop through halo particles
+#         # filter star particle attributes for given subhalo
+#         w = update_weights(w,x,y,age[i],metals[i],mass[i])
+# 
+#     return([np.nansum(w.transpose()*sed_grid[i]) for i in range(len(sed_grid))])  # apply weights to sed spectrum
 
