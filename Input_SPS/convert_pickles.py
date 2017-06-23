@@ -16,10 +16,12 @@ for model in models:
   data = pcl.load(open('model_pickles/'+model+'.p','rb'))
   
   out = {}
-  out['Age'] = data['ages']
-  out['SED'] = data['SED']
-  out['Metallicity'] = data['metallicities']
-  out['Wavelength'] = data['lam']
+  out['Age'] = data['ages']   # Myr
+  out['SED'] = data['SED']  # Lnu / L_odot
+  out['SED'] /= 3.827E33   # Lnu
+
+  out['Metallicity'] = data['metallicities']   # M_odot yr^-1
+  out['Wavelength'] = data['lam'] * 1e4  # 1e10 m 
   
   pcl.dump(out, open('pickles/'+model+'.p', 'w'))
 

@@ -2,12 +2,24 @@
 import numpy as np
 import pickle
 
-
 out_dir = 'output/'
 
 models = ['BC03_Padova1994_Salpeter_lr','BPASSv2_imf135all_100','BPASSv2_imf135all_100-bin','FSPS_default_Salpeter','M05_Salpeter_rhb','P2_Salpeter_ng']
 
-c = 3E8
+c = 2.99792458e8
+
+
+# convert to L_{\nu}
+def cloudy_unit_conversion(m, wavelength):
+    """
+    Cloudy output units: nu Lnu / (4 pi r^2)
+
+    Convert to: Lnu
+    """
+    m *= np.pi
+    m /= (c/wavelength)
+    return(m)
+
 
 
 for model in models:
@@ -41,6 +53,11 @@ for model in models:
 
     wavelengths = np.sort(wavelengths)[::-1]
 
+    # convert to 1e-10 m
+    # wavelengths *= 1e4
+
+    print wavelengths
+
     # save sed values for each metallicity and age
     print 'Saving SED'
 
@@ -58,16 +75,17 @@ for model in models:
             # populate with available sed values
             sed[np.in1d(wavelengths,lam)] = flambda
 
-            cloudy_sed[i,j] = sed
+            cloudy_sed[i,j] = cloudy_unit_conversion(sed, wavelengths*1e-10)
 
 
-    print('Pickle post-cloudy SED')
+    print cloudy_sed
 
-    #data = [cloudy_sed,Z,ages,wavelengths]
-    data = {'SED': cloudy_sed,
-            'Metallicity': Z,
-            'Age': ages,
-            'Wavelength': wavelengths}
+    print 'Pickle post-cloudy SED'
+
+    data = {'SED': cloudy_sed,  # Lnu
+            'Metallicity': Z,   
+            'Age': ages,  # Myr
+            'Wavelength': wavelengths}  # 1e10 m
 
     pickle.dump(data,open(out_dir+model+'.p','wb'), protocol=2)
 
