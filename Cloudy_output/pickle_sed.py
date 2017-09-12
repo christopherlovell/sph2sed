@@ -40,10 +40,9 @@ for model in models:
 
 
     wavelengths = np.sort(wavelengths)[::-1]
-
+    #print wavelengths
     print 'Saving SED'
-
-    cloudy_sed = np.zeros((len(Z),len(ages)), dtype=np.ndarray)
+    cloudy_sed = np.empty((len(Z),len(ages),len(wavelengths)))  #, dtype=np.ndarray)
 
     for i,z in enumerate(Z):
         for j,a in enumerate(ages):
@@ -51,13 +50,13 @@ for model in models:
             lam, flambda = np.loadtxt(model+'/'+str(i)+'_'+str(j)+'.cont', delimiter='\t', usecols = [0,4]).T
         
             # create an empty sed array 
-            sed = np.empty(len(wavelengths))
-            sed[:] = np.nan
+            #sed = np.empty(len(wavelengths))
+            #sed[:] = np.nan
 
             # populate with available sed values
-            sed[np.in1d(wavelengths,lam)] = flambda
+            #sed[np.in1d(wavelengths,lam)] = flambda
 
-            cloudy_sed[i,j] = cloudy_unit_conversion(sed, wavelengths*1e-10)
+            cloudy_sed[i,j,np.in1d(wavelengths,lam)] = cloudy_unit_conversion(flambda, lam*1e-10)
 
 
     print 'Pickle post-cloudy SED'

@@ -1,5 +1,5 @@
 """
-Convert pickles from model_pickles directory to same structure as cloudy pickle output
+Convert pickles from model_pickles directory to same structure and units as cloudy pickle output
 
 
 """
