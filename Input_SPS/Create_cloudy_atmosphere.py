@@ -135,7 +135,10 @@ for model in models:
         for j,a in enumerate(ages):  # available SED ages       
             
             Z_sol = z/0.02
-            
+           
+            # integrate sed to get luminosity
+            # 3.846e33 factor to convert erg s^-1 Hz^-1 Msol^-1 -> Lsol Hz^-1 Msol^-1
+            # factor of 6 to account for 10^6 Msol mass cluster
             # different value to Stephen as including the whole spectrum
             luminosity = np.log10(np.trapz(sed[i,j][::-1]/3.846E33, x=frequency[::-1])) + 6.
             

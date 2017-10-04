@@ -14,12 +14,12 @@ for model in models:
   print(model)
 
   with open("model_pickles/%s.p"%model, 'rb') as f:
-    data = pcl.load(f)#, encoding='latin1')
+    data = pcl.load(f, encoding='latin1')
   
   out = {}
   out['Age'] = data['ages']   # Myr
-  out['SED'] = data['SED']  # Lnu [W Hz^-1]
-  out['SED'] /= 1e7  # Lnu [erg s^-1 Hz^-1]  
+  out['SED'] = data['SED']  # [erg s^-1 Hz^-1 Msol^-1]
+  # out['SED'] /= 1e7  # Lnu [erg s^-1 Hz^-1]
 
   out['Metallicity'] = data['metallicities']   # M_odot yr^-1
   out['Wavelength'] = data['lam'] * 1e4  # AA 
