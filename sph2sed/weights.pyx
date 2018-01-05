@@ -23,9 +23,9 @@ cimport cython
 ctypedef np.float32_t dtype_t
 ctypedef np.float64_t dtype_s
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.nonecheck(False)
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# @cython.nonecheck(False)
 def calculate_weights(np.ndarray[dtype_s, ndim=1] z,
  		      np.ndarray[dtype_s, ndim=1] a,
  		      np.ndarray[dtype_t, ndim=2] particle):
@@ -80,7 +80,7 @@ def calculate_weights(np.ndarray[dtype_s, ndim=1] z,
             w[ihigh,jlow] += mass * ifrac * (1-jfrac)
         if jlow != jhigh:
             w[ilow,jhigh] += mass * (1-ifrac) * jfrac
-        if ilow != ihigh & jlow != jhigh:
+        if (ilow != ihigh) & (jlow != jhigh):
             w[ihigh,jhigh] += mass * ifrac * jfrac
 
     return w

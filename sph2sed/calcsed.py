@@ -26,20 +26,20 @@ def calculate_sed(sed, Z, a, p_metal, p_age, p_imass):
     raw_sed = sed.copy()
 
     if a[0] > a[1]:
-        print("Age array not sorted ascendingly. Sorting...")
+        # print("Age array not sorted ascendingly. Sorting...")
         a = a[::-1]  # sort age array ascendingly
         raw_sed = raw_sed[:,::-1,:]  # sort sed array age ascending
         
         
     if Z[0] > Z[1]:
-        print("Metallicity array not sorted ascendingly. Sorting...")
+        # print("Metallicity array not sorted ascendingly. Sorting...")
         Z = Z[::-1]  # sort age array ascendingly
         raw_sed = raw_sed[::-1,:,:]  # sort sed array age ascending
 
         
     w = weights.calculate_weights(Z, a, np.array([p_metal, p_age, p_imass]).T)
 
-    raw_sed = sed * w # multiply sed by weights grid
+    raw_sed = raw_sed * w # multiply sed by weights grid
     raw_sed = np.nansum(raw_sed, (0,1)) # combine single composite spectrum
 
     return raw_sed
