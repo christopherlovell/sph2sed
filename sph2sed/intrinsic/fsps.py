@@ -1,5 +1,5 @@
 import numpy as np
-
+import os
 import pickle as pcl
 
 import fsps
@@ -9,8 +9,9 @@ from astropy.cosmology import z_at_value
 import astropy.units as u
 
 Zsol = 0.0127
+package_dir = os.path.dirname(os.path.abspath(__file__))
 
-def grid_spectra(Nage=40, NZ=10, nebular=True, dust=False):
+def grid(Nage=40, NZ=10, nebular=True, dust=False):
     """
     Generate grid of spectra with FSPS    
     """
@@ -33,7 +34,6 @@ def grid_spectra(Nage=40, NZ=10, nebular=True, dust=False):
     spec = np.zeros((len(metallicities), len(ages), len(wl)))
 
     for i, Z in enumerate(metallicities):
-
         for j, a in enumerate(ages):
 
             sp.params['logzsol'] = np.log10(Z)
@@ -42,13 +42,22 @@ def grid_spectra(Nage=40, NZ=10, nebular=True, dust=False):
             spec[i,j] = sp.get_spectrum(tage=a, peraa=True)[1]   # Lsol / AA
 
 
-    return spec, metallicities, scale_factors, wl
+    return spec, metallicities, scale_factors, wl 
+
+
+def pickle_grid(Nage, NZ, outdir='output/'):
+
+    spec, Z, age, wl = grid(Nage=Nage, NZ=NZ, nebular=False, dust=False)
+
+    pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
+
+    pcl.dump(pickle, open('%s/output/fsps.p'%package_dir,'wb'))
 
 
 
 if __name__ == "__main__":
 
-    spec, Z, age, wl = grid_spectra(nebular=False, dust=False)
+    spec, Z, age, wl = grid(nebular=False, dust=False)
 
     pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
 
