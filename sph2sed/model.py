@@ -13,9 +13,9 @@ class sed:
 
     def __init__(self):
         self.package_directory = os.path.dirname(os.path.abspath(__file__))
+        self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'
         self.galaxies = {}
         self.cosmo = WMAP9
-
 
 
     def insert_galaxy(self, idx, imass, age, metallicity, **kwargs):
@@ -62,8 +62,8 @@ class sed:
         Args:
         name - str, SPS model name to load
         """
-
-        file_dir = '%s/intrinsic/output/%s.p'%(self.package_directory,name)
+         
+        file_dir = '%s/intrinsic/output/%s.p'%(self.grid_directory,name)
 
         print("Loading %s model from: \n\n%s\n"%(name, file_dir))
 
