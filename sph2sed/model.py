@@ -12,10 +12,10 @@ class sed:
     """
 
     def __init__(self):
-        self.package_directory = os.path.dirname(os.path.abspath(__file__))
-        self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'
-        self.galaxies = {}
-        self.cosmo = WMAP9
+        self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
+        self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
+        self.galaxies = {}     # galaxies info dictionary
+        self.cosmo = WMAP9     # astropy cosmology
 
 
     def insert_galaxy(self, idx, imass, age, metallicity, **kwargs):
@@ -113,7 +113,7 @@ class sed:
         self.galaxies[idx]['Intrinsic Spectra'] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
-    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False):
+    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
@@ -142,7 +142,7 @@ class sed:
 
         if metal_dependent:
         
-            print("Adding metallicity dependence to optical depth values")
+            if verbose: print("Adding metallicity dependence to optical depth values")
             
             if 'Metallicity' not in self.galaxies[idx]:
                 raise ValueError('could not find key %c in galaxy dict'%'Metallicity')
@@ -179,18 +179,23 @@ class sed:
 
 
 
-    def all_galaxies_intrinsic_spectra(self, verbose=False):
+    def all_galaxies(self, method=None, **kwargs):
         """
         Calculate spectra for all galaxies.
+
+        Args:
+            method (function) spectra generating function to apply to all galaxies
+
+        Returns:
+            spectra for each galaxy in `self.galaxies`
         """
-        
-        # for key, value in self.galaxies.data.items():
-        #     if verbose: 
-        #         print(key)
-            
-        for key, value in self.galaxies.data.items():
-            
-            value['Spectra'] = self.intrinsic_spectra(key)
+
+        if method is None:
+            method = self.intrinsic_spectra
+         
+         
+        for key, value in self.galaxies.items():
+            value['Spectra'] = method(idx=key, **kwargs)
 
         
 
