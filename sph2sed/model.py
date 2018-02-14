@@ -113,12 +113,24 @@ class sed:
         self.galaxies[idx]['Intrinsic Spectra'] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
-    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, z_dependent=False):
+    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False):
         """
-        Calculate composite spectrum with age dependent dust screen attenuation
+        Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
+
+        Metallicity dependent dust screen requires inclusion of mass weighted star forming gas phase metallicity.
 
         Args:
             tdisp (float) birth cloud dispersion time, Gyr
+            tau_ism (float) ISM optical depth at lambda_nu
+            tau_cloud (float) birth cloud optical depth at lambda_nu
+            lambda_nu (float) reference wavelength for optical depth values
+            metal_dependent (bool) flag for applying metallicity dependent screen
+
+        Returns:
+            self
+
+            Adds 'Screen Spectra' or 'Z-Screen Spectra' array to galaxy dict
+
         """
 
         self._w = weights.calculate_weights(self.metallicity, self.age,
@@ -128,14 +140,17 @@ class sed:
 
         weighted_sed = self.grid * self._w
 
-        if z_dependent:
+        if metal_dependent:
         
             print("Adding metallicity dependence to optical depth values")
             
-            # Zahid+14 Mstar - Z relation (see Trayford+15)
+            if 'Metallicity' not in self.galaxies[idx]:
+                raise ValueError('could not find key %c in galaxy dict'%'Metallicity')
+            
+
             milkyway_mass = np.log10(6.43e10)
             Z_solar = 0.0134
-            Z = 9.102 + np.log10(1 - np.exp((-1 * (milkyway_mass - 9.138)**0.513)))
+            Z = 9.102 + np.log10(1 - np.exp((-1 * (milkyway_mass - 9.138)**0.513))) # Zahid+14 Mstar - Z relation (see Trayford+15)
             Z -= 8.69 # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
             Z = 10**Z
 
@@ -152,7 +167,7 @@ class sed:
         T = np.exp(-1 * tau_ism * (self.wavelength / lambda_nu)**-0.7)
         spec_B *= T
     
-        if z_dependent:
+        if metal_dependent:
             self.galaxies[idx]['Z-Screen Spectra'] = spec_A + spec_B 
         else:
             self.galaxies[idx]['Screen Spectra'] = spec_A + spec_B 
