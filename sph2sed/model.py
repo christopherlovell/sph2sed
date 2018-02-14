@@ -128,16 +128,20 @@ class sed:
 
         weighted_sed = self.grid * self._w
 
-        # if z_dependent:
-        # 
-        #     print("Adding metallicity dependence to optical depth values")
-        #     
-        #     # Zahid+14 Mstar - Z relation (see Trayford+15)
-        #     Z = 10**(9.102 -12 + np.log10(1 - np.exp((-1 * (milkyway_mass - 9.138)**0.513))))
+        if z_dependent:
+        
+            print("Adding metallicity dependence to optical depth values")
+            
+            # Zahid+14 Mstar - Z relation (see Trayford+15)
+            milkyway_mass = np.log10(6.43e10)
+            Z_solar = 0.0134
+            Z = 9.102 + np.log10(1 - np.exp((-1 * (milkyway_mass - 9.138)**0.513)))
+            Z -= 8.69 # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
+            Z = 10**Z
 
-        #     self.metallicity_factor = self.galaxies[idx]['Metallicity'] / Z
-        #     tau_ism *= self.metallicity_factor
-        #     tau_cloud *= self.metallicity_factor
+            self.metallicity_factor = (self.galaxies[idx]['Metallicity'] / Z_solar) / Z
+            tau_ism *= self.metallicity_factor
+            tau_cloud *= self.metallicity_factor
 
 
         spec_A = np.nansum(weighted_sed[:,self.lookback_time < tdisp,:], (0,1))
@@ -147,8 +151,11 @@ class sed:
         spec_B = np.nansum(weighted_sed[:,self.lookback_time >= tdisp,:], (0,1))
         T = np.exp(-1 * tau_ism * (self.wavelength / lambda_nu)**-0.7)
         spec_B *= T
-
-        self.galaxies[idx]['Screen Spectra'] = spec_A + spec_B 
+    
+        if z_dependent:
+            self.galaxies[idx]['Z-Screen Spectra'] = spec_A + spec_B 
+        else:
+            self.galaxies[idx]['Screen Spectra'] = spec_A + spec_B 
 
         self.tau_ism = tau_ism
         self.tau_cloud = tau_cloud
