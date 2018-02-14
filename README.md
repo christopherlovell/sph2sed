@@ -3,8 +3,6 @@
 
 Package for generating galaxy spectral energy distributions (SEDs) from smoothed particle hydrodynamics (SPH) simulations.
 
-## 
-
 The package has two main components. 
 **grids** contains methods for generating SED grids from SPS models. 
 **sph2sed** contains the python scripts for generating SEDs from SPH particle inputs.
