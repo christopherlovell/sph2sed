@@ -90,6 +90,23 @@ class sed:
             self.grid = self.grid[::-1,:,:]  # sort sed array age ascending
 
 
+    def resample_recent_sf(self):
+        """
+        Resample recenly formed star particles.
+
+        Star particles are much more massive than individual HII regions, leading to artificial Poisson scatter in the SED from recently formed particles.
+
+        Args:
+            
+
+        Returns:
+            
+
+        """
+        
+
+        return None
+
 
     def intrinsic_spectra(self, idx):
         """
@@ -198,19 +215,24 @@ class sed:
             value['Spectra'] = method(idx=key, **kwargs)
 
         
+    def load(self):
+        if hasattr(self, 'filename'):
+            f = open(self.filename, 'rb')
+            tmp_dict = pcl.load(f)
+            f.close()          
+            self.__dict__.update(tmp_dict)
+        else:
+            raise ValueError('Could not find "filename" in class instance.')
+    
 
-#     def load(self):
-#         f = open(self.filename, 'rb')
-#         tmp_dict = cPickle.load(f)
-#         f.close()          
-#     
-#         self.__dict__.update(tmp_dict) 
-#     
-#     
-#     def save(self):
-#         f = open(self.filename, 'wb')
-#         cPickle.dump(self.__dict__, f, 2)
-#         f.close()
+    def save(self):
+        if hasattr(self, 'filename'):
+            f = open(self.filename, 'wb')
+            pcl.dump(self.__dict__, f)
+            f.close()
+        else:
+            raise ValueError('Could not find "filename" in class instance.')
+
 
 #     @staticmethod 
 #     def calculate_xi_ion(Lnu, frequency):
