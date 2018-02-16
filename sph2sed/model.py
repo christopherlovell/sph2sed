@@ -231,8 +231,8 @@ class sed:
         
             if verbose: print("Adding metallicity dependence to optical depth values")
             
-            if 'Metallicity' not in self.galaxies[idx]:
-                raise ValueError('could not find key %c in galaxy dict'%'Metallicity')
+            if 'metallicity' not in self.galaxies[idx]:
+                raise ValueError('could not find key %s in galaxy dict'%'Metallicity')
             
 
             milkyway_mass = np.log10(6.43e10)
@@ -241,7 +241,7 @@ class sed:
             Z -= 8.69 # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
             Z = 10**Z
 
-            self.metallicity_factor = (self.galaxies[idx]['Metallicity'] / Z_solar) / Z
+            self.metallicity_factor = (self.galaxies[idx]['metallicity'] / Z_solar) / Z
             tau_ism *= self.metallicity_factor
             tau_cloud *= self.metallicity_factor
 
