@@ -1,10 +1,12 @@
 import numpy as np
 import pickle as pcl
 import os
+import sys
 
 from . import weights
 
-from astropy.cosmology import WMAP9
+import astropy.units as u
+from astropy.cosmology import WMAP9, z_at_value
 
 class sed:
     """
@@ -12,10 +14,23 @@ class sed:
     """
 
     def __init__(self):
+
         self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
         self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
         self.galaxies = {}     # galaxies info dictionary
         self.cosmo = WMAP9     # astropy cosmology
+        self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
+
+        # check lookup tables exist, create if not
+        if os.path.isfile('%s/temp/lookup_tables.p'%self.package_directory):
+            self.a_lookup, self.age_lookup = pcl.load(open('%s/temp/lookup_tables.p'%self.package_directory, 'rb'))
+        else:
+            if query_yes_no("Lookup tables not initialised. Would you like to do this now? (takes a minute or two)"):
+
+                self.age_lookup = np.linspace(1e-6, self.age_lim, 5000)
+                self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
+
+                pcl.dump([self.a_lookup, self.age_lookup], open('%s/temp/lookup_tables.p'%self.package_directory, 'wb'))
 
 
     def insert_galaxy(self, idx, imass, age, metallicity, **kwargs):
@@ -66,7 +81,6 @@ class sed:
         file_dir = '%s/intrinsic/output/%s.p'%(self.grid_directory,name)
 
         print("Loading %s model from: \n\n%s\n"%(name, file_dir))
-
         temp = pcl.load(open(file_dir, 'rb'))
 
         self.grid = temp['Spectra']
@@ -90,22 +104,77 @@ class sed:
             self.grid = self.grid[::-1,:,:]  # sort sed array age ascending
 
 
-    def resample_recent_sf(self):
+    def resample_recent_sf(self, idx, sigma=5e-3):
         """
         Resample recenly formed star particles.
 
         Star particles are much more massive than individual HII regions, leading to artificial Poisson scatter in the SED from recently formed particles.
 
         Args:
+            idx (int) galaxy index
+            age_lim (float) cutoff age in Gyr, lookback time
+            sigma (float) width of resampling gaussian, Gyr
             
-
         Returns:
             
-
         """
-        
 
-        return None
+        # find age_cutoff in terms of the scale factor
+        self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.age_lim * u.Gyr))
+       
+        mask = self.galaxies[idx]['Particles']['Age'] > self.age_cutoff
+
+        if np.sum(mask) > 0:
+            lookback_times = self.cosmo.lookback_time((1. / self.galaxies[idx]['Particles']['Age'][mask]) - 1).value
+        else:
+            print("No young stellar particles!")
+            return None
+
+        resample_ages = np.array([], dtype=np.float32)
+        resample_mass = np.array([], dtype=np.float32)
+        resample_metal = np.array([], dtype=np.float32)
+        
+        for p_idx in np.arange(np.sum(mask)):
+        
+            N = int(self.galaxies[idx]['Particles']['InitialMass'][mask][p_idx] / 1e4)
+            M_resample = np.float32(self.galaxies[idx]['Particles']['InitialMass'][mask][p_idx] / N)
+        
+            new_lookback_times = np.random.normal(loc=lookback_times[p_idx], scale=sigma, size=N)
+        
+            while True:
+                
+                # truncated Gaussian
+                trunc_mask = (new_lookback_times < 0) | (new_lookback_times > 0.1)
+        
+                _lt = np.sum(trunc_mask)
+        
+                if not _lt:
+                    break
+        
+                new_lookback_times[trunc_mask] = np.random.normal(loc=lookback_times[p_idx], scale=sigma, size=_lt)
+        
+        
+            # lookup scale factor in tables 
+            resample_ages = np.append(resample_ages, self.a_lookup[np.searchsorted(self.age_lookup, new_lookback_times)])
+        
+            resample_mass = np.append(resample_mass, np.repeat(M_resample, N))
+        
+            resample_metal = np.append(resample_metal, 
+                                np.repeat(self.galaxies[idx]['Particles']['Metallicity'][mask][p_idx], N))
+           
+
+        ## delete old particles 
+        self.galaxies[idx]['Particles']['Age'] = np.delete(self.galaxies[idx]['Particles']['Age'], np.where(mask))
+        self.galaxies[idx]['Particles']['InitialMass'] = np.delete(self.galaxies[idx]['Particles']['InitialMass'], np.where(mask))
+        self.galaxies[idx]['Particles']['Metallicity'] = np.delete(self.galaxies[idx]['Particles']['Metallicity'], np.where(mask))
+        
+        ## resample new particles
+        self.galaxies[idx]['Particles']['Age'] = np.concatenate([self.galaxies[idx]['Particles']['Age'], resample_ages])
+        self.galaxies[idx]['Particles']['InitialMass'] = np.concatenate([self.galaxies[idx]['Particles']['InitialMass'], resample_mass])
+        self.galaxies[idx]['Particles']['Metallicity'] = np.concatenate([self.galaxies[idx]['Particles']['Metallicity'], resample_metal])         
+
+
+
 
 
     def intrinsic_spectra(self, idx):
@@ -263,3 +332,37 @@ class sed:
 #     
 #         return np.trapz(integ[limits][::-1],frequency[limits][::-1])
 
+
+
+
+def query_yes_no(question, default="yes"):
+    """Ask a yes/no question via input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+        It must be "yes" (the default), "no" or None (meaning
+        an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True,
+             "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
