@@ -105,7 +105,7 @@ class sed:
             self.grid = self.grid[::-1,:,:]  # sort sed array age ascending
 
 
-    def resample_recent_sf(self, idx, sigma=5e-3):
+    def resample_recent_sf(self, idx, sigma=5e-3, verbose=False):
         """
         Resample recently formed star particles.
 
@@ -130,7 +130,7 @@ class sed:
         if np.sum(mask) > 0:
             lookback_times = self.cosmo.lookback_time((1. / self.galaxies[idx]['Particles']['Age'][mask]) - 1).value
         else:
-            print("No young stellar particles!")
+            if verbose: print("No young stellar particles! index: %s"%idx)
             return None
 
         resample_ages = np.array([], dtype=np.float32)
@@ -288,72 +288,7 @@ class sed:
         for key, value in self.galaxies.items():
             # value['Spectra'] = method(idx=key, **kwargs)
             method(idx=key, **kwargs)
-
-
-
-    def bin_histories(self, binning='linear', name='linear', Nbins=20):
-            
-        # initialise bins
-        if binning == 'linear':
-            binLimits = np.linspace(0, self.cosmo.age(0).value, Nbins+1)
-            binWidth = binLimits[1] - binLimits[0]
-            bins = np.linspace(binWidth/2, binLimits[-1] - binWidth/2, Nbins)
-            binWidths = binWidth * 1e9        
-        elif binning == 'log':
-            upperBin = np.log10(self.cosmo.age(0).value * 1e9)
-            binLimits = np.linspace(7.1, upperBin, Nbins+1)
-            binWidth = binLimits[1] - binLimits[0]
-            bins = np.linspace(7.1 + binWidth/2., upperBin - binWidth/2., Nbins)
-            binWidths = 10**binLimits[1:] - 10**binLimits[:len(binLimits)-1]
-            binLimits = 10**binLimits / 1e9
-        else:
-            raise ValueError('Invalid binning chosen, use either \'linear\' or \'log\'')
-            
-        
-        # save binning info to header
-        self.binning = {}
-        self.binning[name] = {}
-        self.binning[name]['binLimits'] = binLimits
-        self.binning[name]['binWidth'] = binWidth
-        self.binning[name]['bins'] = bins
-        self.binning[name]['binWidths'] = binWidths
-
-        ## convert binLimits to scale factor
-        # need to first set age limits so that z calculation doesn't fail
-        binLimits[binLimits < 1e-6] = 1e-6
-        binLimits[binLimits > (self.cosmo.age(0).value - 1e-3)] = (self.cosmo.age(0).value - 1e-3)
-
-        self.binning[name]['binLimits_sf'] = self.cosmo.scale_factor([z_at_value(self.cosmo.lookback_time, a) for a in binLimits * u.Gyr])
-
-
-        # create a lookup table of ages to avoid calculating for every particle
-        # age_lookup = np.linspace(1e-4, cosmo.age(0).value - 1e-2, 20000)
-        # z_lookup = [z_at_value(cosmo.lookback_time, a) for a in age_lookup * u.Gyr]
-
-        for key, value in self.galaxies.items():
-
-        #     # particles = value['history']
-
-        #     # calculate age in Gyr using lookup table
-        #     # formation_age = age_lookup[np.searchsorted(z_lookup, scale_factor_to_z(particles['formationTime']))]
-
-        #     counts, dummy = np.histogram(formation_age, 
-        #             bins=binLimits, weights=particles['InitialStellarMass']);  # weights converts age to SFR
-
-            # weights converts age to SFR
-            # bins mjst increase monotonically, so reverse for now
-            counts, dummy = np.histogram(value['Particles']['Age'], 
-                bins=self.binning[name]['binLimits_sf'][::-1], weights=value['Particles']['InitialMass']);
-
-            value[name] = {}
-
-            # reverse counts to fit original
-            value[name]['SFH'] = counts[::-1] / self.binning[name]['binWidths'] # divide by bin width in (Giga)years to give SFR in Msol / year
-
-        # 
-        # return pickle 
-
-
+ 
 
     def load(self):
         if hasattr(self, 'filename'):
