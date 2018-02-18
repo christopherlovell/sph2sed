@@ -20,6 +20,7 @@ class sed:
         self.galaxies = {}     # galaxies info dictionary
         self.cosmo = WMAP9     # astropy cosmology
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
+        self.resampled = False
 
         # check lookup tables exist, create if not
         if os.path.isfile('%s/temp/lookup_tables.p'%self.package_directory):
@@ -106,7 +107,7 @@ class sed:
 
     def resample_recent_sf(self, idx, sigma=5e-3):
         """
-        Resample recenly formed star particles.
+        Resample recently formed star particles.
 
         Star particles are much more massive than individual HII regions, leading to artificial Poisson scatter in the SED from recently formed particles.
 
@@ -118,6 +119,8 @@ class sed:
         Returns:
             
         """
+
+        if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled.')
 
         # find age_cutoff in terms of the scale factor
         self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.age_lim * u.Gyr))
@@ -173,7 +176,8 @@ class sed:
         self.galaxies[idx]['Particles']['InitialMass'] = np.concatenate([self.galaxies[idx]['Particles']['InitialMass'], resample_mass])
         self.galaxies[idx]['Particles']['Metallicity'] = np.concatenate([self.galaxies[idx]['Particles']['Metallicity'], resample_metal])         
 
-
+        # set 'resampled' flag
+        self.resampled = True
 
 
 
