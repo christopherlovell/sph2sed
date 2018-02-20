@@ -2,6 +2,7 @@ import numpy as np
 import pickle as pcl
 import os
 import sys
+import random
 
 from . import weights
 
@@ -24,33 +25,37 @@ class sed:
 
         # check lookup tables exist, create if not
         if os.path.isfile('%s/temp/lookup_tables.p'%self.package_directory):
-            self.a_lookup, self.age_lookup = pcl.load(open('%s/temp/lookup_tables.p'%self.package_directory, 'rb'))
+            # self.a_lookup, self.age_lookup = pcl.load(open('%s/temp/lookup_tables.p'%self.package_directory, 'rb'))
+            lookup_table = np.loadtxt('../sph2sed/sph2sed/temp/lookup_table.txt')
+            self.a_lookup = lookup_table[0]
+            self.age_lookup = lookup_table[1]
         else:
             if query_yes_no("Lookup tables not initialised. Would you like to do this now? (takes a minute or two)"):
 
                 self.age_lookup = np.linspace(1e-6, self.age_lim, 5000)
                 self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
 
-                pcl.dump([self.a_lookup, self.age_lookup], open('%s/temp/lookup_tables.p'%self.package_directory, 'wb'))
+                np.savetxt('%s/temp/lookup_tables.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
+                # pcl.dump([self.a_lookup, self.age_lookup], open('%s/temp/lookup_tables.p'%self.package_directory, 'wb'))
 
 
-    def insert_galaxy(self, idx, imass, age, metallicity, **kwargs):
+
+    def insert_galaxy(self, idx, p_initial_mass, p_age, p_metallicity, **kwargs):
         """
         Insert a galaxy into the `galaxy` dictionary.
 
         Args:
         idx - unique galaxy idx
-        imass - numpy array(N), particle initial mass (solar masses)
-        age - numpy array(N), particle age (scale factor)
-        metallicity - numpy array(N), particle metallicity (Z solar)
-
+        p_initial_mass - numpy array(N), particle initial mass (solar masses)
+        p_age - numpy array(N), particle age (scale factor)
+        p_metallicity - numpy array(N), particle metallicity (Z solar)
         """
         
         self.galaxies[idx] = {'Particles': {'Age': None, 'Metallicity': None, 'InitialMass': None}}
 
-        self.galaxies[idx]['Particles']['InitialMass'] = imass
-        self.galaxies[idx]['Particles']['Age'] = age
-        self.galaxies[idx]['Particles']['Metallicity'] = metallicity
+        self.galaxies[idx]['Particles']['InitialMass'] = p_initial_mass
+        self.galaxies[idx]['Particles']['Age'] = p_age
+        self.galaxies[idx]['Particles']['Metallicity'] = p_metallicity
 
         if kwargs is not None:
             self.insert_header(idx, **kwargs)
@@ -103,6 +108,7 @@ class sed:
             print("Metallicity array not sorted ascendingly. Sorting...\n")
             self.metallicity = self.metallicity[::-1]  # sort Z array ascendingly
             self.grid = self.grid[::-1,:,:]  # sort sed array age ascending
+
 
 
     def resample_recent_sf(self, idx, sigma=5e-3, verbose=False):
@@ -181,7 +187,7 @@ class sed:
 
 
 
-    def intrinsic_spectra(self, idx):
+    def intrinsic_spectra(self, idx, key='Intrinsic Spectra'):
         """
         Calculate composite intrinsic spectra.
 
@@ -200,7 +206,7 @@ class sed:
                                                 self.galaxies[idx]['Particles']['InitialMass']]).T )
 
         weighted_sed = self.grid * self._w                  # multiply sed by weights grid
-        self.galaxies[idx]['Intrinsic Spectra'] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
+        self.galaxies[idx][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
 
@@ -234,9 +240,11 @@ class sed:
         if metal_dependent:
         
             if verbose: print("Adding metallicity dependence to optical depth values")
-            
-            if 'metallicity' not in self.galaxies[idx]:
-                raise ValueError('could not find key %s in galaxy dict'%'Metallicity')
+           
+            dependencies = ['gas_metallicity','gas_mass','mstar']
+
+            if np.all([d in sp.galaxies[idx] for d in dependencies]):
+                raise ValueError('Required key missing from galaxy dict\ndependencies: %s'%dependencies)
             
 
             milkyway_mass = np.log10(6.43e10)
@@ -245,7 +253,11 @@ class sed:
             Z -= 8.69 # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
             Z = 10**Z
 
-            self.metallicity_factor = (self.galaxies[idx]['metallicity'] / Z_solar) / Z
+            ## Gas mass fractions
+            gas_fraction = 10**self.galaxies[idx]['gas_mass'] / 10**self.galaxies[idx]['mstar']
+            MW_gas_fraction = 0.1
+
+            self.metallicity_factor = ((self.galaxies[idx]['gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
             tau_ism *= self.metallicity_factor
             tau_cloud *= self.metallicity_factor
 
@@ -270,35 +282,71 @@ class sed:
 
 
 
-    def all_galaxies(self, method=None, **kwargs):
+    def recalculate_sfr(self, idx, time=0.1, label='sfr_100Myr'):
         """
-        Calculate spectra for all galaxies.
+        Recalculate SFR using particle data. 
+
+        Adds an entry to the galaxies dict with key `label`.
 
         Args:
-            method (function) spectra generating function to apply to all galaxies
+            idx (int) galaxy index
+            time (float) lookback time over which to calculate SFR, Gyr
+            label (str) label in galaxies dict to give SFR measure
+        """
 
-        Returns:
-            spectra for each galaxy in `self.galaxies`
+        # find age limit in terms of scale factor
+        scalefactor_lim = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, time * u.Gyr))
+
+        # mask particles below age limit
+        mask = self.galaxies[idx]['Particles']['Age'] > scalefactor_lim
+
+        # sum mass of particles (Msol), divide by time (yr)
+        self.galaxies[idx][label] = np.sum(self.galaxies[idx]['Particles']['InitialMass'][mask]) / (scalefactor_lim * 1e9)  # Msol / yr
+
+
+
+    def all_galaxies(self, method=None, **kwargs):
+        """
+        Apply a method to for all galaxies.
+
+        Args:
+            method (function) function to apply to all galaxies
         """
 
         if method is None:
-            method = self.intrinsic_spectra
-         
-         
-        for key, value in self.galaxies.items():
-            # value['Spectra'] = method(idx=key, **kwargs)
-            method(idx=key, **kwargs)
- 
+            raise ValueError('method is None. Provide a valid method.') 
+        else: 
+            for key, value in self.galaxies.items():
+                method(idx=key, **kwargs)
 
-    def load(self):
+
+
+    def tidy(self, key=None):
+
+        if key is None: raise ValueError('key is None, must specify key to remove from galaxies dictionary')
+        elif isinstance(key, str):
+            key = [key]
+        
+        for galid, value in self.galaxies.items():
+             
+            self.galaxies[galid] = {k: value[k] for k in value.keys() if k not in key}
+            #      [k2 for k2 in self.galaxies[random.choice(list(self.galaxies.keys()))].keys() \
+            #             if k2 not in key]}
+
+
+    def load(self, encoding=None):
         if hasattr(self, 'filename'):
             f = open(self.filename, 'rb')
-            tmp_dict = pcl.load(f)
+            if encoding is not None:
+                tmp_dict = pcl.load(f, encoding=encoding)
+            else:
+                tmp_dict = pcl.load(f)
             f.close()          
             self.__dict__.update(tmp_dict)
         else:
             raise ValueError('Could not find "filename" in class instance.')
     
+
 
     def save(self):
         if hasattr(self, 'filename'):
