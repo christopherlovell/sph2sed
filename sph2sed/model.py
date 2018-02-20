@@ -11,7 +11,7 @@ from astropy.cosmology import WMAP9, z_at_value
 
 class sed:
     """
-    Class encapsulating data and methods for generating spectral energy distributions (SEDs) from Smoothed Particle Hydrodynamics (SPH) simulations.
+    Class encapsulating data structures and methods for generating spectral energy distributions (SEDs) from cosmological hydrodynamic simulations.
     """
 
     def __init__(self):
@@ -24,18 +24,19 @@ class sed:
         self.resampled = False
 
         # check lookup tables exist, create if not
-        if os.path.isfile('%s/temp/lookup_tables.p'%self.package_directory):
+        print(self.package_directory)
+        if os.path.isfile('%s/temp/lookup_table.txt'%self.package_directory):
             # self.a_lookup, self.age_lookup = pcl.load(open('%s/temp/lookup_tables.p'%self.package_directory, 'rb'))
-            lookup_table = np.loadtxt('../sph2sed/sph2sed/temp/lookup_table.txt')
+            lookup_table = np.loadtxt('%s/temp/lookup_table.txt'%self.package_directory)
             self.a_lookup = lookup_table[0]
             self.age_lookup = lookup_table[1]
         else:
-            if query_yes_no("Lookup tables not initialised. Would you like to do this now? (takes a minute or two)"):
+            if query_yes_no("Lookup table not initialised. Would you like to do this now? (takes a minute or two)"):
 
                 self.age_lookup = np.linspace(1e-6, self.age_lim, 5000)
                 self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
 
-                np.savetxt('%s/temp/lookup_tables.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
+                np.savetxt('%s/temp/lookup_table.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
                 # pcl.dump([self.a_lookup, self.age_lookup], open('%s/temp/lookup_tables.p'%self.package_directory, 'wb'))
 
 
