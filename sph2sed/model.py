@@ -21,13 +21,11 @@ class sed:
         self.galaxies = {}     # galaxies info dictionary
         self.cosmo = WMAP9     # astropy cosmology
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
-        self.resampled = False
 
         # check lookup tables exist, create if not
         print(self.package_directory)
         if os.path.isfile('%s/temp/lookup_table.txt'%self.package_directory):
-            # self.a_lookup, self.age_lookup = pcl.load(open('%s/temp/lookup_tables.p'%self.package_directory, 'rb'))
-            lookup_table = np.loadtxt('%s/temp/lookup_table.txt'%self.package_directory)
+            lookup_table = np.loadtxt('%s/temp/lookup_table.txt'%self.package_directory, dtype=np.float32)
             self.a_lookup = lookup_table[0]
             self.age_lookup = lookup_table[1]
         else:
@@ -37,7 +35,12 @@ class sed:
                 self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
 
                 np.savetxt('%s/temp/lookup_table.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
-                # pcl.dump([self.a_lookup, self.age_lookup], open('%s/temp/lookup_tables.p'%self.package_directory, 'wb'))
+
+
+
+    def refresh_directories(self):
+        self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
+        self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
 
 
 
@@ -51,13 +54,18 @@ class sed:
         p_age - numpy array(N), particle age (scale factor)
         p_metallicity - numpy array(N), particle metallicity (Z solar)
         """
-        
-        self.galaxies[idx] = {'Particles': {'Age': None, 'Metallicity': None, 'InitialMass': None}}
+       
+        # set some flags
+        self.galaxies[idx]['resampled'] = False
 
-        self.galaxies[idx]['Particles']['InitialMass'] = p_initial_mass
-        self.galaxies[idx]['Particles']['Age'] = p_age
-        self.galaxies[idx]['Particles']['Metallicity'] = p_metallicity
+        # add star particles
+        self.galaxies[idx] = {'StarParticles': {'Age': None, 'Metallicity': None, 'InitialMass': None}}
 
+        self.galaxies[idx]['StarParticles']['InitialMass'] = p_initial_mass
+        self.galaxies[idx]['StarParticles']['Age'] = p_age
+        self.galaxies[idx]['StarParticles']['Metallicity'] = p_metallicity
+
+        # add some extra header info
         if kwargs is not None:
             self.insert_header(idx, **kwargs)
 
@@ -132,10 +140,10 @@ class sed:
         # find age_cutoff in terms of the scale factor
         self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.age_lim * u.Gyr))
        
-        mask = self.galaxies[idx]['Particles']['Age'] > self.age_cutoff
+        mask = self.galaxies[idx]['StarParticles']['Age'] > self.age_cutoff
 
         if np.sum(mask) > 0:
-            lookback_times = self.cosmo.lookback_time((1. / self.galaxies[idx]['Particles']['Age'][mask]) - 1).value
+            lookback_times = self.cosmo.lookback_time((1. / self.galaxies[idx]['StarParticles']['Age'][mask]) - 1).value
         else:
             if verbose: print("No young stellar particles! index: %s"%idx)
             return None
@@ -146,8 +154,8 @@ class sed:
         
         for p_idx in np.arange(np.sum(mask)):
         
-            N = int(self.galaxies[idx]['Particles']['InitialMass'][mask][p_idx] / 1e4)
-            M_resample = np.float32(self.galaxies[idx]['Particles']['InitialMass'][mask][p_idx] / N)
+            N = int(self.galaxies[idx]['StarParticles']['InitialMass'][mask][p_idx] / 1e4)
+            M_resample = np.float32(self.galaxies[idx]['StarParticles']['InitialMass'][mask][p_idx] / N)
         
             new_lookback_times = np.random.normal(loc=lookback_times[p_idx], scale=sigma, size=N)
         
@@ -170,21 +178,21 @@ class sed:
             resample_mass = np.append(resample_mass, np.repeat(M_resample, N))
         
             resample_metal = np.append(resample_metal, 
-                                np.repeat(self.galaxies[idx]['Particles']['Metallicity'][mask][p_idx], N))
+                                np.repeat(self.galaxies[idx]['StarParticles']['Metallicity'][mask][p_idx], N))
            
 
         ## delete old particles 
-        self.galaxies[idx]['Particles']['Age'] = np.delete(self.galaxies[idx]['Particles']['Age'], np.where(mask))
-        self.galaxies[idx]['Particles']['InitialMass'] = np.delete(self.galaxies[idx]['Particles']['InitialMass'], np.where(mask))
-        self.galaxies[idx]['Particles']['Metallicity'] = np.delete(self.galaxies[idx]['Particles']['Metallicity'], np.where(mask))
+        self.galaxies[idx]['StarParticles']['Age'] = np.delete(self.galaxies[idx]['StarParticles']['Age'], np.where(mask))
+        self.galaxies[idx]['StarParticles']['InitialMass'] = np.delete(self.galaxies[idx]['StarParticles']['InitialMass'], np.where(mask))
+        self.galaxies[idx]['StarParticles']['Metallicity'] = np.delete(self.galaxies[idx]['StarParticles']['Metallicity'], np.where(mask))
         
         ## resample new particles
-        self.galaxies[idx]['Particles']['Age'] = np.concatenate([self.galaxies[idx]['Particles']['Age'], resample_ages])
-        self.galaxies[idx]['Particles']['InitialMass'] = np.concatenate([self.galaxies[idx]['Particles']['InitialMass'], resample_mass])
-        self.galaxies[idx]['Particles']['Metallicity'] = np.concatenate([self.galaxies[idx]['Particles']['Metallicity'], resample_metal])         
+        self.galaxies[idx]['StarParticles']['Age'] = np.concatenate([self.galaxies[idx]['StarParticles']['Age'], resample_ages])
+        self.galaxies[idx]['StarParticles']['InitialMass'] = np.concatenate([self.galaxies[idx]['StarParticles']['InitialMass'], resample_mass])
+        self.galaxies[idx]['StarParticles']['Metallicity'] = np.concatenate([self.galaxies[idx]['StarParticles']['Metallicity'], resample_metal])         
 
         # set 'resampled' flag
-        self.resampled = True
+        self.galaxies[idx]['resampled'] = True
 
 
 
@@ -202,9 +210,9 @@ class sed:
         """
 
         self._w = weights.calculate_weights(self.metallicity, self.age, 
-                                      np.array([self.galaxies[idx]['Particles']['Metallicity'],
-                                                self.galaxies[idx]['Particles']['Age'],
-                                                self.galaxies[idx]['Particles']['InitialMass']]).T )
+                                      np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
+                                                self.galaxies[idx]['StarParticles']['Age'],
+                                                self.galaxies[idx]['StarParticles']['InitialMass']]).T )
 
         weighted_sed = self.grid * self._w                  # multiply sed by weights grid
         self.galaxies[idx][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
@@ -232,9 +240,9 @@ class sed:
         """
 
         self._w = weights.calculate_weights(self.metallicity, self.age,
-                                      np.array([self.galaxies[idx]['Particles']['Metallicity'],
-                                                self.galaxies[idx]['Particles']['Age'],
-                                                self.galaxies[idx]['Particles']['InitialMass']]).T )
+                                      np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
+                                                self.galaxies[idx]['StarParticles']['Age'],
+                                                self.galaxies[idx]['StarParticles']['InitialMass']]).T )
 
         weighted_sed = self.grid * self._w
 
@@ -299,10 +307,10 @@ class sed:
         scalefactor_lim = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, time * u.Gyr))
 
         # mask particles below age limit
-        mask = self.galaxies[idx]['Particles']['Age'] > scalefactor_lim
+        mask = self.galaxies[idx]['StarParticles']['Age'] > scalefactor_lim
 
         # sum mass of particles (Msol), divide by time (yr)
-        self.galaxies[idx][label] = np.sum(self.galaxies[idx]['Particles']['InitialMass'][mask]) / (scalefactor_lim * 1e9)  # Msol / yr
+        self.galaxies[idx][label] = np.sum(self.galaxies[idx]['StarParticles']['InitialMass'][mask]) / (scalefactor_lim * 1e9)  # Msol / yr
 
 
 
