@@ -14,13 +14,14 @@ class sed:
     Class encapsulating data structures and methods for generating spectral energy distributions (SEDs) from cosmological hydrodynamic simulations.
     """
 
-    def __init__(self):
+    def __init__(self, details=''):
 
         self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
         self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
         self.galaxies = {}     # galaxies info dictionary
         self.cosmo = WMAP9     # astropy cosmology
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
+        self.details = details
 
         # check lookup tables exist, create if not
         print(self.package_directory)
@@ -219,7 +220,7 @@ class sed:
 
 
 
-    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False):
+    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, name='Screen Spectra'):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
@@ -250,10 +251,10 @@ class sed:
         
             if verbose: print("Adding metallicity dependence to optical depth values")
            
-            dependencies = ['gas_metallicity','gas_mass','mstar']
+            dependencies = ['sf_gas_metallicity','sf_gas_mass','stellar_mass']
 
-            if np.all([d in sp.galaxies[idx] for d in dependencies]):
-                raise ValueError('Required key missing from galaxy dict\ndependencies: %s'%dependencies)
+            if not np.all([d in self.galaxies[idx] for d in dependencies]):
+                raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
             
 
             milkyway_mass = np.log10(6.43e10)
@@ -263,10 +264,10 @@ class sed:
             Z = 10**Z
 
             ## Gas mass fractions
-            gas_fraction = 10**self.galaxies[idx]['gas_mass'] / 10**self.galaxies[idx]['mstar']
+            gas_fraction = self.galaxies[idx]['sf_gas_mass'] / self.galaxies[idx]['stellar_mass']
             MW_gas_fraction = 0.1
 
-            self.metallicity_factor = ((self.galaxies[idx]['gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
+            self.metallicity_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
             tau_ism *= self.metallicity_factor
             tau_cloud *= self.metallicity_factor
 
@@ -280,9 +281,9 @@ class sed:
         spec_B *= T
     
         if metal_dependent:
-            self.galaxies[idx]['Z-Screen Spectra'] = spec_A + spec_B 
+            self.galaxies[idx][name] = spec_A + spec_B 
         else:
-            self.galaxies[idx]['Screen Spectra'] = spec_A + spec_B 
+            self.galaxies[idx][name] = spec_A + spec_B 
 
         self.tau_ism = tau_ism
         self.tau_cloud = tau_cloud
