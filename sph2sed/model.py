@@ -55,7 +55,9 @@ class sed:
         p_age - numpy array(N), particle age (scale factor)
         p_metallicity - numpy array(N), particle metallicity (Z solar)
         """
-       
+      
+        self.galaxies[idx] = {}
+
         # set some flags
         self.galaxies[idx]['resampled'] = False
 
@@ -131,9 +133,6 @@ class sed:
             idx (int) galaxy index
             age_lim (float) cutoff age in Gyr, lookback time
             sigma (float) width of resampling gaussian, Gyr
-            
-        Returns:
-            
         """
 
         if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled.')
@@ -182,51 +181,89 @@ class sed:
                                 np.repeat(self.galaxies[idx]['StarParticles']['Metallicity'][mask][p_idx], N))
            
 
+
+        self.galaxies[idx]['StarParticles']['Resampled'] = {}
+        self.galaxies[idx]['StarParticles']['Resampled']['Age'] = resample_ages
+        self.galaxies[idx]['StarParticles']['Resampled']['InitialMass'] = resample_mass
+        self.galaxies[idx]['StarParticles']['Resampled']['Metallicity'] = resample_metal
+
+        self.galaxies[idx]['StarParticles']['Resampled']['mask'] = mask
+
+
         ## delete old particles 
-        self.galaxies[idx]['StarParticles']['Age'] = np.delete(self.galaxies[idx]['StarParticles']['Age'], np.where(mask))
-        self.galaxies[idx]['StarParticles']['InitialMass'] = np.delete(self.galaxies[idx]['StarParticles']['InitialMass'], np.where(mask))
-        self.galaxies[idx]['StarParticles']['Metallicity'] = np.delete(self.galaxies[idx]['StarParticles']['Metallicity'], np.where(mask))
+        # self.galaxies[idx]['StarParticles']['Age'] = np.delete(self.galaxies[idx]['StarParticles']['Age'], np.where(mask))
+        # self.galaxies[idx]['StarParticles']['InitialMass'] = np.delete(self.galaxies[idx]['StarParticles']['InitialMass'], np.where(mask))
+        # self.galaxies[idx]['StarParticles']['Metallicity'] = np.delete(self.galaxies[idx]['StarParticles']['Metallicity'], np.where(mask))
         
         ## resample new particles
-        self.galaxies[idx]['StarParticles']['Age'] = np.concatenate([self.galaxies[idx]['StarParticles']['Age'], resample_ages])
-        self.galaxies[idx]['StarParticles']['InitialMass'] = np.concatenate([self.galaxies[idx]['StarParticles']['InitialMass'], resample_mass])
-        self.galaxies[idx]['StarParticles']['Metallicity'] = np.concatenate([self.galaxies[idx]['StarParticles']['Metallicity'], resample_metal])         
+        # self.galaxies[idx]['StarParticles']['Age'] = np.concatenate([self.galaxies[idx]['StarParticles']['Age'], resample_ages])
+        # self.galaxies[idx]['StarParticles']['InitialMass'] = np.concatenate([self.galaxies[idx]['StarParticles']['InitialMass'], resample_mass])
+        # self.galaxies[idx]['StarParticles']['Metallicity'] = np.concatenate([self.galaxies[idx]['StarParticles']['Metallicity'], resample_metal])         
 
         # set 'resampled' flag
         self.galaxies[idx]['resampled'] = True
 
 
 
-    def intrinsic_spectra(self, idx, key='Intrinsic Spectra'):
+    def _calculate_weights(self, idx, resampled=False):
+
+
+        if resampled & ('Resampled' in self.galaxies[idx]['StarParticles']):
+            metal = self.galaxies[idx]['StarParticles']['Metallicity'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+            metal = np.hstack([metal, self.galaxies[idx]['StarParticles']['Resampled']['Metallicity']])
+
+            age = self.galaxies[idx]['StarParticles']['Age'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+            age = np.hstack([age, self.galaxies[idx]['StarParticles']['Resampled']['Age']])
+            
+            imass = self.galaxies[idx]['StarParticles']['InitialMass'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+            imass = np.hstack([imass, self.galaxies[idx]['StarParticles']['Resampled']['InitialMass']])
+        else:
+            metal = self.galaxies[idx]['StarParticles']['Metallicity']
+            age = self.galaxies[idx]['StarParticles']['Age']
+            imass = self.galaxies[idx]['StarParticles']['InitialMass'] 
+
+
+        self._w = weights.calculate_weights(self.metallicity, self.age,
+                                      np.array([metal,age,imass]).T)
+
+        return self.grid * self._w
+  
+
+
+    def intrinsic_spectra(self, idx, key='Intrinsic Spectra', resampled=False):
         """
         Calculate composite intrinsic spectra.
 
         Args:
-            p_metal (array) in same units as Z
-            p_age (array)  in same units as a
-            p_imass (array) in units of M (e.g. Msol)
+            idx (int) galaxy index
+            ley (str) label to give generated spectra 
+            resampled (bool) flg to use resampled young stellar particles (see `resample_recent_sf`)
 
         Returns:
-            sed: with the same length as raw_sed, returned with units L (e.g. erg s^-1 Hz^-1)
+            sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
         """
 
-        self._w = weights.calculate_weights(self.metallicity, self.age, 
-                                      np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
-                                                self.galaxies[idx]['StarParticles']['Age'],
-                                                self.galaxies[idx]['StarParticles']['InitialMass']]).T )
+        # self._w = weights.calculate_weights(self.metallicity, self.age, 
+        #                               np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
+        #                                         self.galaxies[idx]['StarParticles']['Age'],
+        #                                         self.galaxies[idx]['StarParticles']['InitialMass']]).T )
 
-        weighted_sed = self.grid * self._w                  # multiply sed by weights grid
+        # weighted_sed = self.grid * self._w                  # multiply sed by weights grid
+
+        weighted_sed = self._calculate_weights(idx, resampled=resampled)
+
         self.galaxies[idx][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
 
-    def dust_screen(self, idx, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, name='Screen Spectra'):
+    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, name='Screen Spectra'):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
         Metallicity dependent dust screen requires inclusion of mass weighted star forming gas phase metallicity.
 
         Args:
+            resampled (bool) flag, use resampled recently formed star particles (see `resample_recent_sf`)
             tdisp (float) birth cloud dispersion time, Gyr
             tau_ism (float) ISM optical depth at lambda_nu
             tau_cloud (float) birth cloud optical depth at lambda_nu
@@ -240,12 +277,14 @@ class sed:
 
         """
 
-        self._w = weights.calculate_weights(self.metallicity, self.age,
-                                      np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
-                                                self.galaxies[idx]['StarParticles']['Age'],
-                                                self.galaxies[idx]['StarParticles']['InitialMass']]).T )
+        # self._w = weights.calculate_weights(self.metallicity, self.age,
+        #                               np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
+        #                                         self.galaxies[idx]['StarParticles']['Age'],
+        #                                         self.galaxies[idx]['StarParticles']['InitialMass']]).T )
 
-        weighted_sed = self.grid * self._w
+        # weighted_sed = self.grid * self._w
+    
+        weighted_sed = self._calculate_weights(idx, resampled=resampled)
 
         if metal_dependent:
         
@@ -430,3 +469,4 @@ def query_yes_no(question, default="yes"):
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' "
                              "(or 'y' or 'n').\n")
+
