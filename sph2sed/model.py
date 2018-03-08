@@ -189,17 +189,6 @@ class sed:
 
         self.galaxies[idx]['StarParticles']['Resampled']['mask'] = mask
 
-
-        ## delete old particles 
-        # self.galaxies[idx]['StarParticles']['Age'] = np.delete(self.galaxies[idx]['StarParticles']['Age'], np.where(mask))
-        # self.galaxies[idx]['StarParticles']['InitialMass'] = np.delete(self.galaxies[idx]['StarParticles']['InitialMass'], np.where(mask))
-        # self.galaxies[idx]['StarParticles']['Metallicity'] = np.delete(self.galaxies[idx]['StarParticles']['Metallicity'], np.where(mask))
-        
-        ## resample new particles
-        # self.galaxies[idx]['StarParticles']['Age'] = np.concatenate([self.galaxies[idx]['StarParticles']['Age'], resample_ages])
-        # self.galaxies[idx]['StarParticles']['InitialMass'] = np.concatenate([self.galaxies[idx]['StarParticles']['InitialMass'], resample_mass])
-        # self.galaxies[idx]['StarParticles']['Metallicity'] = np.concatenate([self.galaxies[idx]['StarParticles']['Metallicity'], resample_metal])         
-
         # set 'resampled' flag
         self.galaxies[idx]['resampled'] = True
 
