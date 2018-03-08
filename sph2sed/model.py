@@ -19,6 +19,7 @@ class sed:
         self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
         self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
         self.galaxies = {}     # galaxies info dictionary
+        self.spectra = {}      # spectra info dictionary
         self.cosmo = WMAP9     # astropy cosmology
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
         self.details = details
@@ -61,8 +62,11 @@ class sed:
         # set some flags
         self.galaxies[idx]['resampled'] = False
 
+        # add placeholder for spectra
+        self.galaxies[idx]['Spectra'] = {}
+
         # add star particles
-        self.galaxies[idx] = {'StarParticles': {'Age': None, 'Metallicity': None, 'InitialMass': None}}
+        self.galaxies[idx]['StarParticles'] = {'Age': None, 'Metallicity': None, 'InitialMass': None}
 
         self.galaxies[idx]['StarParticles']['InitialMass'] = p_initial_mass
         self.galaxies[idx]['StarParticles']['Age'] = p_age
@@ -135,7 +139,7 @@ class sed:
             sigma (float) width of resampling gaussian, Gyr
         """
 
-        if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled.')
+        # if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled.')
 
         # find age_cutoff in terms of the scale factor
         self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.age_lim * u.Gyr))
@@ -219,6 +223,11 @@ class sed:
   
 
 
+    # def _initialise_spectra(self, idx, key):
+    #     self.galaxies[idx]['Spectra'][key] = {'f': None, 'lambda': None}
+
+
+
     def intrinsic_spectra(self, idx, key='Intrinsic Spectra', resampled=False):
         """
         Calculate composite intrinsic spectra.
@@ -232,20 +241,15 @@ class sed:
             sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
         """
 
-        # self._w = weights.calculate_weights(self.metallicity, self.age, 
-        #                               np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
-        #                                         self.galaxies[idx]['StarParticles']['Age'],
-        #                                         self.galaxies[idx]['StarParticles']['InitialMass']]).T )
-
-        # weighted_sed = self.grid * self._w                  # multiply sed by weights grid
+        self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
 
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
 
-        self.galaxies[idx][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
+        self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
 
-    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, name='Screen Spectra'):
+    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen Spectra'):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
@@ -266,12 +270,8 @@ class sed:
 
         """
 
-        # self._w = weights.calculate_weights(self.metallicity, self.age,
-        #                               np.array([self.galaxies[idx]['StarParticles']['Metallicity'],
-        #                                         self.galaxies[idx]['StarParticles']['Age'],
-        #                                         self.galaxies[idx]['StarParticles']['InitialMass']]).T )
-
-        # weighted_sed = self.grid * self._w
+        if key not in self.spectra:  # save spectra info
+            self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
     
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
 
@@ -309,9 +309,9 @@ class sed:
         spec_B *= T
     
         if metal_dependent:
-            self.galaxies[idx][name] = spec_A + spec_B 
+            self.galaxies[idx]['Spectra'][key] = spec_A + spec_B 
         else:
-            self.galaxies[idx][name] = spec_A + spec_B 
+            self.galaxies[idx]['Spectra'][key] = spec_A + spec_B 
 
         self.tau_ism = tau_ism
         self.tau_cloud = tau_cloud
