@@ -223,11 +223,6 @@ class sed:
   
 
 
-    # def _initialise_spectra(self, idx, key):
-    #     self.galaxies[idx]['Spectra'][key] = {'f': None, 'lambda': None}
-
-
-
     def intrinsic_spectra(self, idx, key='Intrinsic Spectra', resampled=False):
         """
         Calculate composite intrinsic spectra.
