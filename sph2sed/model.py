@@ -199,6 +199,13 @@ class sed:
 
 
     def _calculate_weights(self, idx, resampled=False):
+        """
+        Calculate weights matrix from stellar particles.
+
+        Args:
+            idx (int) galaxy index
+            resampled (bool) whether to use resampled star particles
+        """
 
 
         if resampled & ('Resampled' in self.galaxies[idx]['StarParticles']):
@@ -223,7 +230,7 @@ class sed:
   
 
 
-    def intrinsic_spectra(self, idx, key='Intrinsic Spectra', resampled=False):
+    def intrinsic_spectra(self, idx, key='Intrinsic', resampled=False):
         """
         Calculate composite intrinsic spectra.
 
@@ -236,6 +243,7 @@ class sed:
             sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
         """
 
+        # TODO: test for existence before assigning
         self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
 
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
@@ -244,7 +252,7 @@ class sed:
 
 
 
-    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen Spectra'):
+    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen'):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
@@ -340,17 +348,18 @@ class sed:
 
     def all_galaxies(self, method=None, **kwargs):
         """
-        Apply a method to for all galaxies.
+        Apply a method to all galaxies.
 
         Args:
             method (function) function to apply to all galaxies
+            **kwargs (dict) (argument, value) pairs to pass to `method`
         """
 
         if method is None:
             raise ValueError('method is None. Provide a valid method.') 
         else: 
-            for key, value in self.galaxies.items():
-                method(idx=key, **kwargs)
+            for idx in self.galaxies.keys():
+                method(idx=idx, **kwargs)
 
 
 
@@ -418,8 +427,6 @@ class sed:
 #         limits = frequency>b
 #     
 #         return np.trapz(integ[limits][::-1],frequency[limits][::-1])
-
-
 
 
 def query_yes_no(question, default="yes"):
