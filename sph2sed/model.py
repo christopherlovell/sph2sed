@@ -187,9 +187,10 @@ class sed:
 
 
         self.galaxies[idx]['StarParticles']['Resampled'] = {}
-        self.galaxies[idx]['StarParticles']['Resampled']['Age'] = resample_ages
-        self.galaxies[idx]['StarParticles']['Resampled']['InitialMass'] = resample_mass
-        self.galaxies[idx]['StarParticles']['Resampled']['Metallicity'] = resample_metal
+        # make extra sure it's float32
+        self.galaxies[idx]['StarParticles']['Resampled']['Age'] = resample_ages.astype(np.float32)
+        self.galaxies[idx]['StarParticles']['Resampled']['InitialMass'] = resample_mass.astype(np.float32)
+        self.galaxies[idx]['StarParticles']['Resampled']['Metallicity'] = resample_metal.astype(np.float32)
 
         self.galaxies[idx]['StarParticles']['Resampled']['mask'] = mask
 
@@ -323,7 +324,7 @@ class sed:
 
 
 
-    def recalculate_sfr(self, idx, time=0.1, label='sfr_100Myr'):
+    def recalculate_sfr(self, idx, z, time=0.1, label='sfr_100Myr'):
         """
         Recalculate SFR using particle data. 
 
@@ -331,12 +332,13 @@ class sed:
 
         Args:
             idx (int) galaxy index
+            z (float) redshift of galaxy
             time (float) lookback time over which to calculate SFR, Gyr
             label (str) label in galaxies dict to give SFR measure
         """
 
         # find age limit in terms of scale factor
-        scalefactor_lim = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, time * u.Gyr))
+        scalefactor_lim = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, (self.cosmo.lookback_time(z).value + time) * u.Gyr))
 
         # mask particles below age limit
         mask = self.galaxies[idx]['StarParticles']['Age'] > scalefactor_lim
