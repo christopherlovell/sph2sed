@@ -344,7 +344,7 @@ class sed:
         mask = self.galaxies[idx]['StarParticles']['Age'] > scalefactor_lim
 
         # sum mass of particles (Msol), divide by time (yr)
-        self.galaxies[idx][label] = np.sum(self.galaxies[idx]['StarParticles']['InitialMass'][mask]) / (scalefactor_lim * 1e9)  # Msol / yr
+        self.galaxies[idx][label] = np.sum(self.galaxies[idx]['StarParticles']['InitialMass'][mask]) / (time * 1e9)  # Msol / yr
 
 
 
