@@ -142,8 +142,8 @@ class sed:
         # if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled.')
 
         # find age_cutoff in terms of the scale factor
-        self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.age_lim * u.Gyr))
-       
+        self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.cosmo.lookback_time(self.redshift) + self.age_lim * u.Gyr))
+
         mask = self.galaxies[idx]['StarParticles']['Age'] > self.age_cutoff
 
         if np.sum(mask) > 0:
