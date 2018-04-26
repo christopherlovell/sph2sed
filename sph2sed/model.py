@@ -24,19 +24,19 @@ class sed:
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
         self.details = details
 
-        # check lookup tables exist, create if not
-        print(self.package_directory)
-        if os.path.isfile('%s/temp/lookup_table.txt'%self.package_directory):
-            lookup_table = np.loadtxt('%s/temp/lookup_table.txt'%self.package_directory, dtype=np.float32)
-            self.a_lookup = lookup_table[0]
-            self.age_lookup = lookup_table[1]
-        else:
-            if query_yes_no("Lookup table not initialised. Would you like to do this now? (takes a minute or two)"):
+        # # check lookup tables exist, create if not
+        # print(self.package_directory)
+        # if os.path.isfile('%s/temp/lookup_table.txt'%self.package_directory):
+        #     lookup_table = np.loadtxt('%s/temp/lookup_table.txt'%self.package_directory, dtype=np.float32)
+        #     self.a_lookup = lookup_table[0]
+        #     self.age_lookup = lookup_table[1]
+        # else:
+        #     if query_yes_no("Lookup table not initialised. Would you like to do this now? (takes a minute or two)"):
 
-                self.age_lookup = np.linspace(1e-6, self.age_lim, 5000)
-                self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
+        #         self.age_lookup = np.linspace(1e-6, self.age_lim, 5000)
+        #         self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
 
-                np.savetxt('%s/temp/lookup_table.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
+        #         np.savetxt('%s/temp/lookup_table.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
 
 
 
@@ -127,6 +127,35 @@ class sed:
 
 
 
+    def create_lookup_table(self, z, resolution=5000):
+        
+        # if query_yes_no("Lookup table not initialised. Would you like to do this now? (takes a minute or two)"):
+
+        lookback_time = self.cosmo.lookback_time(z).value # Gyr
+
+        self.age_lookup = np.linspace(lookback_time, lookback_time + self.age_lim, resolution)
+        self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
+
+        filename = "%s/temp/lookup_%s_z%03.0fp%.3s_lim%1.0fp%.3s.txt"%(self.package_directory, self.cosmo.name, z, str(z%1)[2:], 
+                                                                       self.age_lim, str("%.3f"%(self.age_lim%1))[2:])
+
+        np.savetxt(filename, np.array([self.a_lookup, self.age_lookup]))
+
+
+    def load_lookup_table(self, z):
+
+        filename = "%s/temp/lookup_%s_z%03.0fp%.3s_lim%1.0fp%.3s.txt"%(self.package_directory, self.cosmo.name, z, str(z%1)[2:],
+                                                                       self.age_lim, str("%.3f"%(self.age_lim%1))[2:])
+
+        if os.path.isfile(filename):
+            lookup_table = np.loadtxt(filename, dtype=np.float32)
+            self.a_lookup = lookup_table[0]
+            self.age_lookup = lookup_table[1]
+        else:
+            print("lookup table not initialised for this cosmology / redshift / age cutoff. initialising now (make take a couple of minutes)")
+            self.create_lookup_table(z)
+
+
     def resample_recent_sf(self, idx, sigma=5e-3, verbose=False):
         """
         Resample recently formed star particles.
@@ -139,15 +168,31 @@ class sed:
             sigma (float) width of resampling gaussian, Gyr
         """
 
-        # if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled.')
+        # if self.resampled: raise ValueError('`resampled` flag already set; histories may already have been resampled. If not, reset flag.')
+        
+        if 'redshift' not in self.galaxies[idx]: raise ValueError('redshift not defined for this galaxy')
+
+        if ('a_lookup' not in self.__dict__) | ('age_lookup' not in self.__dict__):
+            self.load_lookup_table(self.galaxies[idx]['redshift'])
+
+        if (self.a_lookup.min() > self.cosmo.scale_factor(self.galaxies[idx]['redshift'])) |\
+                (self.a_lookup.max() < self.cosmo.scale_factor(self.galaxies[idx]['redshift'])):
+
+            print('Lookup table out of range. Reloading')
+            self.load_lookup_table(self.galaxies[idx]['redshift'])
+            
+        lookback_time_z0 = np.float32(self.cosmo.lookback_time(self.galaxies[idx]['redshift']).value)
+        lookback_time_z1 = np.float32((self.cosmo.lookback_time(self.galaxies[idx]['redshift']) + self.age_lim * u.Gyr).value)
 
         # find age_cutoff in terms of the scale factor
-        self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, self.cosmo.lookback_time(self.redshift) + self.age_lim * u.Gyr))
+        self.age_cutoff = self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, lookback_time_z1 * u.Gyr))
 
         mask = self.galaxies[idx]['StarParticles']['Age'] > self.age_cutoff
+        N = np.sum(mask)
 
-        if np.sum(mask) > 0:
+        if N > 0:
             lookback_times = self.cosmo.lookback_time((1. / self.galaxies[idx]['StarParticles']['Age'][mask]) - 1).value
+            if verbose: print("Young stellar particles: %s"%N)
         else:
             if verbose: print("No young stellar particles! index: %s"%idx)
             return None
@@ -156,17 +201,17 @@ class sed:
         resample_mass = np.array([], dtype=np.float32)
         resample_metal = np.array([], dtype=np.float32)
         
-        for p_idx in np.arange(np.sum(mask)):
+        for p_idx in np.arange(N):
         
-            N = int(self.galaxies[idx]['StarParticles']['InitialMass'][mask][p_idx] / 1e4)
-            M_resample = np.float32(self.galaxies[idx]['StarParticles']['InitialMass'][mask][p_idx] / N)
+            n = int(self.galaxies[idx]['StarParticles']['InitialMass'][mask][p_idx] / 1e4)
+            M_resample = np.float32(self.galaxies[idx]['StarParticles']['InitialMass'][mask][p_idx] / n)
         
-            new_lookback_times = np.random.normal(loc=lookback_times[p_idx], scale=sigma, size=N)
+            new_lookback_times = np.random.normal(loc=lookback_times[p_idx], scale=sigma, size=n)
         
             while True:
                 
                 # truncated Gaussian
-                trunc_mask = (new_lookback_times < 0) | (new_lookback_times > 0.1)
+                trunc_mask = (new_lookback_times < lookback_time_z0) | (new_lookback_times > lookback_time_z1)
         
                 _lt = np.sum(trunc_mask)
         
@@ -175,14 +220,14 @@ class sed:
         
                 new_lookback_times[trunc_mask] = np.random.normal(loc=lookback_times[p_idx], scale=sigma, size=_lt)
         
-        
+       
             # lookup scale factor in tables 
             resample_ages = np.append(resample_ages, self.a_lookup[np.searchsorted(self.age_lookup, new_lookback_times)])
         
-            resample_mass = np.append(resample_mass, np.repeat(M_resample, N))
+            resample_mass = np.append(resample_mass, np.repeat(M_resample, n))
         
             resample_metal = np.append(resample_metal, 
-                                np.repeat(self.galaxies[idx]['StarParticles']['Metallicity'][mask][p_idx], N))
+                                np.repeat(self.galaxies[idx]['StarParticles']['Metallicity'][mask][p_idx], n))
            
 
 
@@ -223,8 +268,16 @@ class sed:
             age = self.galaxies[idx]['StarParticles']['Age']
             imass = self.galaxies[idx]['StarParticles']['InitialMass'] 
 
+        age_grid = self.age
 
-        self._w = weights.calculate_weights(self.metallicity, self.age,
+        # rescale ages by redshift
+        if 'redshift' in self.galaxies[idx]:
+            z = self.galaxies[idx]['redshift']
+            if z != 0.:
+                age_grid = self.cosmo.scale_factor([z_at_value(self.cosmo.scale_factor, a) + z for a in age_grid])
+
+ 
+        self._w = weights.calculate_weights(self.metallicity, age_grid,
                                       np.array([metal,age,imass]).T)
 
         return self.grid * self._w
@@ -305,7 +358,7 @@ class sed:
 
 
         spec_A = np.nansum(weighted_sed[:,self.lookback_time < tdisp,:], (0,1))
-        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-0.7)
+        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
         spec_A *= T
 
         spec_B = np.nansum(weighted_sed[:,self.lookback_time >= tdisp,:], (0,1))
