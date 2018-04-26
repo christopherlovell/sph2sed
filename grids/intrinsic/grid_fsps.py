@@ -11,7 +11,7 @@ import astropy.units as u
 Zsol = 0.0127
 package_dir = os.path.dirname(os.path.abspath(__file__))
 
-def grid(Nage=40, NZ=10, nebular=True, dust=False):
+def grid(Nage=80, NZ=20, nebular=True, dust=False):
     """
     Generate grid of spectra with FSPS    
     """
