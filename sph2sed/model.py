@@ -9,6 +9,8 @@ from . import weights
 import astropy.units as u
 from astropy.cosmology import WMAP9, z_at_value
 
+import pyphot
+
 class sed:
     """
     Class encapsulating data structures and methods for generating spectral energy distributions (SEDs) from cosmological hydrodynamic simulations.
@@ -16,8 +18,9 @@ class sed:
 
     def __init__(self, details=''):
 
-        self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
-        self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
+        self.package_directory = os.path.dirname(os.path.abspath(__file__))          # location of package
+        self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'      # location of SPS grids
+        self.filter_directory = os.path.split(self.package_directory)[0]+'/filters'  # location of filters
         self.galaxies = {}     # galaxies info dictionary
         self.spectra = {}      # spectra info dictionary
         self.cosmo = WMAP9     # astropy cosmology
@@ -399,6 +402,88 @@ class sed:
         # sum mass of particles (Msol), divide by time (yr)
         self.galaxies[idx][label] = np.sum(self.galaxies[idx]['StarParticles']['InitialMass'][mask]) / (time * 1e9)  # Msol / yr
 
+
+#     def load_filters(self):
+#         
+#         filter_sublist = ['lasilla22_WFI_U38','VLT_vimos_U','hst_acsF435W','lasilla22_WFI_B','lasilla22_WFI_V',
+#                   'hst_acsF606W','VLT_vimos_R','lasilla22_WFI_Rc','hst_acsF775W','hst_acsF814W','hst_acsF850LP',
+#                   'hst_wfc3F125W','VLT_issac_J','wircam_J','hst_wfc3F140W','VLT_issac_H','wircam_Ks',
+#                   'VLT_issac_Ks','iracch1','iracch2','iracch3','iracch4','SubIB427','SubIB445','SubIB505',
+#                   'SubIB527','SubIB550','SubIB574','SubIB598','SubIB624','SubIB651','SubIB679','SubIB738',
+#                   'SubIB767','SubIB797','SubIB856']
+# 
+#         self.filters = {}
+# 
+#         for f in filter_sublist:
+#             self.filters[f] = np.loadtxt('%s/%s.res'%(self.filter_directory,f))
+
+
+#     def calculate_photometry(self, idx, spectra='Intrinsic', wavelength=True, filter_name='hst_acsF606W', verbose=False):
+#         """
+#         Calculate photometric luminosity for a galaxy given a photometric filter and chosen input spectrum
+# 
+#         Args:
+#             idx (int) galaxy index
+#             spectra (string) Spectra identifier
+#             wavelength (bool or array) if true, use self.wavelength array, otherwise specify custom wavelength array. Must match length of input spectra.
+#             filter_name (string) name of filter to use. see self.filters.keys for available filters.
+#             verbose (bool)
+#         Returns:
+#             photometric luminosity for given galaxy 
+# 
+#         """
+#    
+#         if wavelength:
+#             wl = self.wavelength
+#         else:
+#             if len(wavelength) != len(self.galaxies[idx]['Spectra'][spectra]):
+#                 raise ValueError('Wavelength and spectra arrays are not the same length')
+#             wl = wavelength
+# 
+#         if 'filters' not in self.__dict__:
+#             if verbose: print('Loading filters..')
+#             self.load_filters()
+#  
+#         if 'Photometry' not in self.galaxies[idx]: 
+#             self.galaxies[idx]['Photometry'] = {}
+# 
+#         spec = self.galaxies[idx]['Spectra'][spectra]
+# 
+#         # interpolate
+#         fnu = np.interp(x=self.filters[filter_name][:,0], xp=wl, fp=spec)
+# 
+#         # integrate
+#         int_filt = np.trapz(x=self.filters[filter_name][:,0], y=fnu)
+#         self.galaxies[idx]['Photometry'][filter_name] = np.log10(int_filt)
+
+
+    def _initialise_pyphot(self):
+        self.filters = pyphot.get_library()
+
+
+    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', verbose=False):
+
+        if 'filters' not in self.__dict__:
+            if verbose: print('Loading filters..')
+            self._initialise_pyphot()
+
+        if 'Photometry' not in self.galaxies[idx]: 
+            self.galaxies[idx]['Photometry'] = {}
+
+        # get pyphot filter
+        f = self.filters[filter_name] 
+    
+        lamb = self.wavelength # AA
+        spectra = self.galaxies[idx]['Spectra'][spectra].copy()  # L_sol AA^-1
+        spectra *= 3.828e26  # J s^-1 AA^-1
+        spectra *= 1e7       # erg s^-1 AA^-1
+
+        d = (10 * u.pc).to(u.cm).value
+        spectra /= (4 * np.pi * d**2)  # erg s^-1 cm^-2 AA^-1
+        
+        flux = f.get_flux(lamb, spectra)
+
+        self.galaxies[idx]['Photometry'][filter_name] = -2.5 * np.log10(flux) - f.AB_zero_mag
 
 
     def all_galaxies(self, method=None, **kwargs):
