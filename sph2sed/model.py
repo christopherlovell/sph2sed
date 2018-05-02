@@ -27,20 +27,6 @@ class sed:
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
         self.details = details
 
-        # # check lookup tables exist, create if not
-        # print(self.package_directory)
-        # if os.path.isfile('%s/temp/lookup_table.txt'%self.package_directory):
-        #     lookup_table = np.loadtxt('%s/temp/lookup_table.txt'%self.package_directory, dtype=np.float32)
-        #     self.a_lookup = lookup_table[0]
-        #     self.age_lookup = lookup_table[1]
-        # else:
-        #     if query_yes_no("Lookup table not initialised. Would you like to do this now? (takes a minute or two)"):
-
-        #         self.age_lookup = np.linspace(1e-6, self.age_lim, 5000)
-        #         self.a_lookup = np.array([self.cosmo.scale_factor(z_at_value(self.cosmo.lookback_time, a * u.Gyr)) for a in self.age_lookup], dtype=np.float32)
-
-        #         np.savetxt('%s/temp/lookup_table.txt'%self.package_directory, np.array([self.a_lookup, self.age_lookup]))
-
 
 
     def refresh_directories(self):
@@ -343,13 +329,14 @@ class sed:
 
             if not np.all([d in self.galaxies[idx] for d in dependencies]):
                 raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
-            
-
-            milkyway_mass = np.log10(6.43e10)
+           
+            milkyway_mass = 10.8082109              
             Z_solar = 0.0134
-            Z = 9.102 + np.log10(1 - np.exp((-1 * (milkyway_mass - 9.138)**0.513))) # Zahid+14 Mstar - Z relation (see Trayford+15)
-            Z -= 8.69 # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
-            Z = 10**Z
+            M_0 = np.log10(1 + self.galaxies[idx]['redshift']) * 2.64 + 9.138
+            Z_0 = 9.102
+            beta = 0.513
+            logOHp12 = Z_0 + np.log(1 - np.exp(-1 * (10**(milkyway_mass - M_0))**beta)) # Zahid+14 Mstar - Z relation (see Trayford+15)
+            Z = 10**(logOHp12 - 8.69)  # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
 
             ## Gas mass fractions
             gas_fraction = self.galaxies[idx]['sf_gas_mass'] / self.galaxies[idx]['stellar_mass']
@@ -361,7 +348,7 @@ class sed:
 
 
         spec_A = np.nansum(weighted_sed[:,self.lookback_time < tdisp,:], (0,1))
-        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
+        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-0.7)  # da Cunha+08 slope of -1.3
         spec_A *= T
 
         spec_B = np.nansum(weighted_sed[:,self.lookback_time >= tdisp,:], (0,1))
