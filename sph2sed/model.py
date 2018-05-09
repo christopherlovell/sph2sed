@@ -28,11 +28,9 @@ class sed:
         self.details = details
 
 
-
     def refresh_directories(self):
         self.package_directory = os.path.dirname(os.path.abspath(__file__))      # location of package
         self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'  # location of SPS grids
-
 
 
     def insert_galaxy(self, idx, p_initial_mass, p_age, p_metallicity, **kwargs):
@@ -66,7 +64,6 @@ class sed:
             self.insert_header(idx, **kwargs)
 
 
-
     def insert_header(self, idx, **kwargs):
         """
         Insert header information for a given galaxy
@@ -80,13 +77,16 @@ class sed:
                 self.galaxies[idx][key] = value
 
 
-
-    def load_grid(self, name='fsps'):
+    def load_grid(self, name='fsps', imf_correction=1):
         """
         Load intrinsic spectra grid.
 
         Args:
-        name - str, SPS model name to load
+            name - str, SPS model name to load
+            imf_correction - correction factor from SPS model IMF to Chabrier
+
+            Salpeter -> Chabrier : 1.59
+            Kroupa   -> Chabrier : 1.06 
         """
          
         file_dir = '%s/intrinsic/output/%s.p'%(self.grid_directory,name)
@@ -108,12 +108,12 @@ class sed:
             self.lookback_time = self.lookback_time[::-1]
             self.grid = self.grid[:,::-1,:]  # sort sed array age ascending
 
-
         if self.metallicity[0] > self.metallicity[1]:
             print("Metallicity array not sorted ascendingly. Sorting...\n")
             self.metallicity = self.metallicity[::-1]  # sort Z array ascendingly
             self.grid = self.grid[::-1,:,:]  # sort sed array age ascending
 
+        self.grid *= imf_correction
 
 
     def create_lookup_table(self, z, resolution=5000):
@@ -294,7 +294,6 @@ class sed:
         self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
-
     def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen'):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
@@ -364,7 +363,6 @@ class sed:
         self.tau_cloud = tau_cloud
         self.tdisp = tdisp
         self.lambda_nu = lambda_nu
-
 
 
     def recalculate_sfr(self, idx, z, time=0.1, label='sfr_100Myr'):
@@ -448,7 +446,15 @@ class sed:
         self.filters = pyphot.get_library()
 
 
-    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', verbose=False):
+    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False):
+        """
+        Args:
+            idx (int) galaxy index
+            filter_name (string) name of filter in pyphot filter list
+            spectra (string) spectra identifier
+            wavelength (array) if None, use the self.wavelenght definition, otherwise define your own wavelength array
+            verbose (bool)
+        """
 
         if 'filters' not in self.__dict__:
             if verbose: print('Loading filters..')
@@ -460,17 +466,20 @@ class sed:
         # get pyphot filter
         f = self.filters[filter_name] 
     
-        lamb = self.wavelength # AA
-        spectra = self.galaxies[idx]['Spectra'][spectra].copy()  # L_sol AA^-1
-        spectra *= 3.828e26  # J s^-1 AA^-1
-        spectra *= 1e7       # erg s^-1 AA^-1
+        if wavelength is None:
+            wavelength = self.wavelength # AA
+        
+        Llamb = self.galaxies[idx]['Spectra'][spectra].copy()  # L_sol AA^-1
+        Llamb *= 3.828e26  # J s^-1 AA^-1
+        Llamb *= 1e7       # erg s^-1 AA^-1
 
         d = (10 * u.pc).to(u.cm).value
-        spectra /= (4 * np.pi * d**2)  # erg s^-1 cm^-2 AA^-1
+        Llamb /= (4 * np.pi * d**2)  # erg s^-1 cm^-2 AA^-1
         
-        flux = f.get_flux(lamb, spectra)
+        flux = f.get_flux(wavelength, Llamb)
 
-        self.galaxies[idx]['Photometry'][filter_name] = -2.5 * np.log10(flux) - f.AB_zero_mag
+        write_name = "%s %s"%(filter_name, spectra)
+        self.galaxies[idx]['Photometry'][write_name] = -2.5 * np.log10(flux) - f.AB_zero_mag
 
 
     def all_galaxies(self, method=None, **kwargs):
