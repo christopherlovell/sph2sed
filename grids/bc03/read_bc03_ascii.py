@@ -11,6 +11,11 @@ import numpy as np
 import os
 import sys
 import re
+import pickle as pcl
+
+from astropy.cosmology import WMAP9 as cosmo
+from astropy.cosmology import z_at_value
+import astropy.units as u
 
 
 def readBC03Array(file, lastLineFloat=None):
@@ -128,9 +133,53 @@ def convertBC03(files=None):
         print(' ')
         lastLine=None
 
-    return [seds, lambdaBins, metalBins, ageBins]
+    return np.array(seds, dtype=np.float64), np.array(metalBins, dtype=np.float64), np.array(ageBins, dtype=np.float64), np.array(lambdaBins, dtype=np.float64)
+
+
+def convert_age_to_scalefactor(sed, ages):
+    """
+    convert age array to scale fctor, and filter corresponding sed array
+ 
+    Args:
+        sed - numpy array (float) dimensions [Z,a,lambda]
+        ages - (float) Gyr
+    """
+    
+    ## remove ages above age of universe
+    age_mask = (ages < cosmo.age(0).value) & (ages != 0.)
+
+    ages = ages[age_mask] * u.Gyr
+    sed = sed[:,age_mask,:]
+
+    ## convert to scale factor
+    scale_factors = cosmo.scale_factor([z_at_value(cosmo.lookback_time, age) for age in ages])
+
+    return scale_factors, sed
 
 
 if __name__ == '__main__':
-    convertBC03(['bc2003_hr_m22_chab_ssp.ised_ASCII'])
- 
+    out = convertBC03(['bc2003_hr_m22_chab_ssp.ised_ASCII', 
+                 'bc2003_hr_m22_chab_ssp.ised_ASCII',
+                 'bc2003_hr_m32_chab_ssp.ised_ASCII',  
+                 'bc2003_hr_m72_chab_ssp.ised_ASCII',
+                 'bc2003_hr_m42_chab_ssp.ised_ASCII',
+                 'bc2003_hr_m52_chab_ssp.ised_ASCII',
+                 'bc2003_hr_m62_chab_ssp.ised_ASCII'])
+    # bc2003_hr_m62_chab_ssp_Pickles_Stelib.ised_ASCII
+
+    sed = out[0]     # Lsol / AA
+    metals = out[1]  # Z 
+    ages = out[2]    # yr
+    wl = out[3]      # ??
+
+    ages /= 1e9      # Gyr
+
+    ages, sed = convert_age_to_scalefactor(sed, ages)
+
+    pickle = {'Spectra': sed, 'Metallicity': metals, 'Age': ages, 'Wavelength': wl}
+
+    pcl.dump(pickle, open('../intrinsic/output/bc03_chab.p', 'wb'))
+
+
+
+
