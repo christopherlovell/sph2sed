@@ -341,13 +341,16 @@ class sed:
             gas_fraction = self.galaxies[idx]['sf_gas_mass'] / self.galaxies[idx]['stellar_mass']
             MW_gas_fraction = 0.1
 
-            self.metallicity_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
-            tau_ism *= self.metallicity_factor
-            tau_cloud *= self.metallicity_factor
+            metallicity_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
+
+            self.galaxies[idx]['metallicity_factor'] = metallicity_factor            
+
+            tau_ism *= metallicity_factor
+            tau_cloud *= metallicity_factor
 
 
         spec_A = np.nansum(weighted_sed[:,self.lookback_time < tdisp,:], (0,1))
-        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-0.7)  # da Cunha+08 slope of -1.3
+        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
         spec_A *= T
 
         spec_B = np.nansum(weighted_sed[:,self.lookback_time >= tdisp,:], (0,1))
