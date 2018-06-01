@@ -77,7 +77,33 @@ class sed:
                 self.galaxies[idx][key] = value
 
 
-    def load_grid(self, name='fsps', imf_correction=1):
+
+    def initialise_grid(self, name):
+        
+        self.grid[name]['lookback_time'] = self.cosmo.lookback_time((1. / self.grid[name]['age']) - 1).value  # Gyr
+
+        if self.grid[name]['age'][0] > self.grid[name]['age'][1]:
+            print("Age array not sorted ascendingly. Sorting...\n")
+            
+            # sort age array ascendingly
+            self.grid[name]['age'] = self.grid[name]['age'][::-1]  
+            self.grid[name]['lookback_time'] = self.grid[name]['lookback_time'][::-1]
+            
+            # sort sed array age ascending
+            self.grid[name]['grid'] = self.grid[name]['grid'][:,::-1,:] 
+
+        if self.grid[name]['metallicity'][0] > self.grid[name]['metallicity'][1]:
+            print("Metallicity array not sorted ascendingly. Sorting...\n")
+            
+            # sort Z array ascendingly
+            self.grid[name]['metallicity'] = self.grid[name]['metallicity'][::-1] 
+            
+            # sort sed array age ascending
+            self.grid[name]['grid'] = self.grid[name]['grid'][::-1,:,:] 
+
+
+
+    def load_grid(self, name='fsps'): # , imf_correction=1):
         """
         Load intrinsic spectra grid.
 
@@ -94,26 +120,17 @@ class sed:
         print("Loading %s model from: \n\n%s\n"%(name, file_dir))
         temp = pcl.load(open(file_dir, 'rb'))
 
-        self.grid = temp['Spectra']
-        self.metallicity = temp['Metallicity']
-        
-        self.age = temp['Age']  # scale factor
-        self.lookback_time = self.cosmo.lookback_time((1. / self.age) - 1).value  # Gyr
-        
-        self.wavelength = temp['Wavelength']
+        name = 0.0
+        self.grid = {name: {'grid': None, 'age': None, 'metallicity':None}}
 
-        if self.age[0] > self.age[1]:
-            print("Age array not sorted ascendingly. Sorting...\n")
-            self.age = self.age[::-1]  # sort age array ascendingly
-            self.lookback_time = self.lookback_time[::-1]
-            self.grid = self.grid[:,::-1,:]  # sort sed array age ascending
+        self.grid[name]['grid'] = temp['Spectra']
+        self.grid[name]['metallicity'] = temp['Metallicity']
+        self.grid[name]['age'] = temp['Age']  # scale factor
+        self.grid[name]['wavelength'] = temp['Wavelength']
 
-        if self.metallicity[0] > self.metallicity[1]:
-            print("Metallicity array not sorted ascendingly. Sorting...\n")
-            self.metallicity = self.metallicity[::-1]  # sort Z array ascendingly
-            self.grid = self.grid[::-1,:,:]  # sort sed array age ascending
+        self.initialise_grid(0.0)
 
-        self.grid *= imf_correction
+        # self.grid *= imf_correction
 
 
     def create_lookup_table(self, z, resolution=5000):
@@ -257,20 +274,61 @@ class sed:
             age = self.galaxies[idx]['StarParticles']['Age']
             imass = self.galaxies[idx]['StarParticles']['InitialMass'] 
 
-        age_grid = self.age
 
-        # rescale ages by redshift
+        # Load grid appropriate for redshift
         if 'redshift' in self.galaxies[idx]:
+
             z = self.galaxies[idx]['redshift']
-            if z != 0.:
-                age_grid = self.cosmo.scale_factor([z_at_value(self.cosmo.scale_factor, a) + z for a in age_grid])
 
- 
-        self._w = weights.calculate_weights(self.metallicity, age_grid,
-                                      np.array([metal,age,imass]).T)
+            if z not in self.grid.keys():
 
-        return self.grid * self._w
+                self.redshift_grid(z)
+
+
+        self._w = weights.calculate_weights(self.grid[z]['metallicity'], 
+                                            self.grid[z]['age'],
+                                            np.array([metal,age,imass]).T)
+
+        return self.grid[z]['grid'] * self._w
   
+
+    def redshift_grid(self, z, z0=0.0):
+        """
+        Redshift grid ages, return new grid
+
+        Args:
+            z (float) redshift
+        """
+
+        if z == 0.:
+            print("No need to initialise new grid, z = 0")
+            return None
+        else:
+            
+            self.grid[z] = self.grid[z0].copy()
+
+            observed_lookback_time = self.cosmo.lookback_time(z).value
+
+            # redshift of age grid values
+            age_grid_z = [z_at_value(self.cosmo.scale_factor, a) for a in self.grid[z]['age']]
+            # convert to lookback time
+            age_grid_lookback = np.array([self.cosmo.lookback_time(z).value for z in age_grid_z])
+            # add observed lookback time
+            age_grid_lookback += observed_lookback_time
+
+            # truncate age grid by age of universe
+            age_mask = age_grid_lookback < self.cosmo.age(0).value
+            age_grid_lookback = age_grid_lookback[age_mask]
+
+            # convert new lookback times to redshift
+            age_grid_z = [z_at_value(self.cosmo.lookback_time, t * u.Gyr) for t in age_grid_lookback]
+            # convert redshift to scale factor
+            age_grid = self.cosmo.scale_factor(age_grid_z)
+
+            self.grid[z]['age'] = age_grid
+            self.grid[z]['grid'] = self.grid[z]['grid'][:,age_mask,:]
+            self.initialise_grid(z)
+
 
 
     def intrinsic_spectra(self, idx, key='Intrinsic', resampled=False):
@@ -286,10 +344,10 @@ class sed:
             sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
         """
 
-        # TODO: test for existence before assigning
-        self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
-
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
+        
+        # if key not in self.spectra:  # save spectra info
+            # self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
 
         self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
@@ -315,10 +373,13 @@ class sed:
 
         """
 
-        if key not in self.spectra:  # save spectra info
-            self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
+        # if key not in self.spectra:  # save spectra info
+        #     self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
     
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
+
+        wl = self.grid[self.galaxies[idx]['redshift']]['wavelength']
+        lb = self.grid[self.galaxies[idx]['redshift']]['lookback_time']
 
         if metal_dependent:
         
@@ -349,12 +410,12 @@ class sed:
             tau_cloud *= metallicity_factor
 
 
-        spec_A = np.nansum(weighted_sed[:,self.lookback_time < tdisp,:], (0,1))
-        T = np.exp(-1 * (tau_ism + tau_cloud) * (self.wavelength / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
+        spec_A = np.nansum(weighted_sed[:,lb < tdisp,:], (0,1))
+        T = np.exp(-1 * (tau_ism + tau_cloud) * (wl / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
         spec_A *= T
 
-        spec_B = np.nansum(weighted_sed[:,self.lookback_time >= tdisp,:], (0,1))
-        T = np.exp(-1 * tau_ism * (self.wavelength / lambda_nu)**-0.7)
+        spec_B = np.nansum(weighted_sed[:,lb >= tdisp,:], (0,1))
+        T = np.exp(-1 * tau_ism * (wl / lambda_nu)**-0.7)
         spec_B *= T
     
         if metal_dependent:
@@ -449,40 +510,50 @@ class sed:
         self.filters = pyphot.get_library()
 
 
-    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False):
-        """
-        Args:
-            idx (int) galaxy index
-            filter_name (string) name of filter in pyphot filter list
-            spectra (string) spectra identifier
-            wavelength (array) if None, use the self.wavelenght definition, otherwise define your own wavelength array
-            verbose (bool)
-        """
-
-        if 'filters' not in self.__dict__:
-            if verbose: print('Loading filters..')
-            self._initialise_pyphot()
-
-        if 'Photometry' not in self.galaxies[idx]: 
-            self.galaxies[idx]['Photometry'] = {}
-
-        # get pyphot filter
-        f = self.filters[filter_name] 
-    
-        if wavelength is None:
-            wavelength = self.wavelength # AA
-        
-        Llamb = self.galaxies[idx]['Spectra'][spectra].copy()  # L_sol AA^-1
-        Llamb *= 3.828e26  # J s^-1 AA^-1
-        Llamb *= 1e7       # erg s^-1 AA^-1
-
-        d = (10 * u.pc).to(u.cm).value
-        Llamb /= (4 * np.pi * d**2)  # erg s^-1 cm^-2 AA^-1
-        
-        flux = f.get_flux(wavelength, Llamb)
-
-        write_name = "%s %s"%(filter_name, spectra)
-        self.galaxies[idx]['Photometry'][write_name] = -2.5 * np.log10(flux) - f.AB_zero_mag
+#     def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False):
+#         """
+#         Args:
+#             idx (int) galaxy index
+#             filter_name (string) name of filter in pyphot filter list
+#             spectra (string) spectra identifier
+#             wavelength (array) if None, use the self.wavelenght definition, otherwise define your own wavelength array
+#             verbose (bool)
+#         """
+# 
+#         if 'filters' not in self.__dict__:
+#             if verbose: print('Loading filters..')
+#             self._initialise_pyphot()
+# 
+#         if 'Photometry' not in self.galaxies[idx]: 
+#             self.galaxies[idx]['Photometry'] = {}
+# 
+#         # get pyphot filter
+#         f = self.filters[filter_name] 
+#     
+#         if wavelength is None:
+#             wavelength = self.wavelength # AA
+#         
+#         # from pint import UnitRegistry
+#         # ureg = UnitRegistry()
+#         # wavelength = wavelength * ureg.angstrom
+# 
+#         Llamb = self.galaxies[idx]['Spectra'][spectra].copy()  # L_sol AA^-1
+#         Llamb *= 3.828e33  # erg s^-1 AA^-1
+# 
+#         d = (10 * u.pc).to(u.cm).value
+#         Llamb /= (4 * np.pi * d**2)  # erg s^-1 cm^-2 AA^-1
+#         # Llamb *=  (1 + self.redshift)
+# 
+#         fnu = Llamb * (3e18 / wavelength)
+#         
+#         # suppress print (ignore annoying warnings from pyphot)
+#         # sys.stdout = open(os.devnull, 'w')
+#         flux = f.get_flux(wavelength, fnu)
+#         # reenable print
+#         # sys.stdout = sys.__stdout__
+# 
+#         write_name = "%s %s"%(filter_name, spectra)
+#         self.galaxies[idx]['Photometry'][write_name] = -2.5 * np.log10(flux) - f.AB_zero_mag
 
 
     def all_galaxies(self, method=None, **kwargs):
