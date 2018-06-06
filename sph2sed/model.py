@@ -11,6 +11,8 @@ from astropy.cosmology import WMAP9, z_at_value
 
 import pyphot
 
+c = 2.9979e18  # AA s^-1
+
 class sed:
     """
     Class encapsulating data structures and methods for generating spectral energy distributions (SEDs) from cosmological hydrodynamic simulations.
@@ -510,50 +512,82 @@ class sed:
         self.filters = pyphot.get_library()
 
 
-#     def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False):
-#         """
-#         Args:
-#             idx (int) galaxy index
-#             filter_name (string) name of filter in pyphot filter list
-#             spectra (string) spectra identifier
-#             wavelength (array) if None, use the self.wavelenght definition, otherwise define your own wavelength array
-#             verbose (bool)
-#         """
-# 
-#         if 'filters' not in self.__dict__:
-#             if verbose: print('Loading filters..')
-#             self._initialise_pyphot()
-# 
-#         if 'Photometry' not in self.galaxies[idx]: 
-#             self.galaxies[idx]['Photometry'] = {}
-# 
-#         # get pyphot filter
-#         f = self.filters[filter_name] 
-#     
-#         if wavelength is None:
-#             wavelength = self.wavelength # AA
-#         
-#         # from pint import UnitRegistry
-#         # ureg = UnitRegistry()
-#         # wavelength = wavelength * ureg.angstrom
-# 
-#         Llamb = self.galaxies[idx]['Spectra'][spectra].copy()  # L_sol AA^-1
-#         Llamb *= 3.828e33  # erg s^-1 AA^-1
-# 
-#         d = (10 * u.pc).to(u.cm).value
-#         Llamb /= (4 * np.pi * d**2)  # erg s^-1 cm^-2 AA^-1
-#         # Llamb *=  (1 + self.redshift)
-# 
-#         fnu = Llamb * (3e18 / wavelength)
-#         
-#         # suppress print (ignore annoying warnings from pyphot)
-#         # sys.stdout = open(os.devnull, 'w')
-#         flux = f.get_flux(wavelength, fnu)
-#         # reenable print
-#         # sys.stdout = sys.__stdout__
-# 
-#         write_name = "%s %s"%(filter_name, spectra)
-#         self.galaxies[idx]['Photometry'][write_name] = -2.5 * np.log10(flux) - f.AB_zero_mag
+    @staticmethod
+    def flux_frequency_units(L, wavelength):
+        """
+        Convert from Lsol AA^-1 -> erg s^-1 cm^-2 Hz^-1 in restframe (10 pc)
+    
+        Args:
+            L [Lsol AA^-1]
+            wavelength [AA]
+        """
+        d = (10 * u.pc).to(u.cm).value
+        Llamb = L * 3.828e33                 # erg s^-1 AA^1
+        Llamb /= (4 * np.pi * d**2)          # erg s^-1 cm^-2 AA^-1
+        return Llamb * (wavelength**2 / 3e18)  # erg s^-1 cm^-2 Hz^-1 
+    
+
+    @staticmethod
+    def photo(fnu, lamb, filt_trans, filt_lamb):
+        """
+        Absolute magnitude
+    
+        Args:
+            fnu - flux [erg s^-1 cm^-2 Hz^-1]
+            lamb - wavelength [AA]
+            ftrans - filter transmission over flamb
+            flamb - filter wavelength [AA]
+        """
+
+        nu = c / lamb
+        
+        filt_nu = c / filt_lamb
+
+        if filt_nu[0] > filt_nu[1]:
+            filt_nu = filt_nu[::-1]
+            filt_trans = filt_trans[::-1]
+    
+        ftrans_interp = np.interp(nu, filt_nu, filt_trans)
+        a = np.trapz(fnu * ftrans_interp / nu, nu)
+        b = np.trapz(ftrans_interp / nu, nu)
+
+        mag = -2.5 * np.log10(a / b) - 48.6  # AB
+    
+        return mag
+    
+
+    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False):
+        """
+        Args:
+            idx (int) galaxy index
+            filter_name (string) name of filter in pyphot filter list
+            spectra (string) spectra identifier, *assuming restframe luminosity per unit wavelength*
+            wavelength (array) if None, use the self.wavelenght definition, otherwise define your own wavelength array
+            verbose (bool)
+        """
+
+        z = self.galaxies[idx]['redshift']
+
+        if 'filters' not in self.__dict__:
+            if verbose: print('Loading filters..')
+            self._initialise_pyphot()
+
+        if 'Photometry' not in self.galaxies[idx]: 
+            self.galaxies[idx]['Photometry'] = {}
+
+        # get pyphot filter
+        f = self.filters[filter_name] 
+    
+        if wavelength is None:
+            wavelength = self.grid[z]['wavelength'] # AA
+        
+
+        spec = self.galaxies[idx]['Spectra'][spectra].copy()
+        spec = self.flux_frequency_units(spec, wavelength)
+
+        write_name = "%s %s"%(filter_name, spectra)
+        self.galaxies[idx]['Photometry'][write_name] = self.photo(spec, wavelength, f.transmit, f.wavelength / (1+z))
+
 
 
     def all_galaxies(self, method=None, **kwargs):
