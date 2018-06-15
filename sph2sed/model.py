@@ -348,8 +348,8 @@ class sed:
 
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
         
-        # if key not in self.spectra:  # save spectra info
-            # self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
+        if key not in self.spectra:  # save spectra info
+            self.spectra[key] = {'lambda': self.grid[0.0]['wavelength'], 'units': 'Lsol / AA', 'scaler': None}
 
         self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
@@ -522,9 +522,9 @@ class sed:
             wavelength [AA]
         """
         d = (10 * u.pc).to(u.cm).value
-        Llamb = L * 3.828e33                 # erg s^-1 AA^1
+        Llamb = L * 3.826e33                 # erg s^-1 AA^1
         Llamb /= (4 * np.pi * d**2)          # erg s^-1 cm^-2 AA^-1
-        return Llamb * (wavelength**2 / 3e18)  # erg s^-1 cm^-2 Hz^-1 
+        return Llamb * (wavelength**2 / c)  # erg s^-1 cm^-2 Hz^-1 
     
 
     @staticmethod
@@ -586,7 +586,7 @@ class sed:
         spec = self.flux_frequency_units(spec, wavelength)
 
         write_name = "%s %s"%(filter_name, spectra)
-        self.galaxies[idx]['Photometry'][write_name] = self.photo(spec, wavelength, f.transmit, f.wavelength / (1+z))
+        self.galaxies[idx]['Photometry'][write_name] = self.photo(spec, wavelength, f.transmit, f.wavelength)
 
 
 

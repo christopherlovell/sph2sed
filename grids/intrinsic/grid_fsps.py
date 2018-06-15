@@ -13,7 +13,13 @@ package_dir = os.path.dirname(os.path.abspath(__file__))
 
 def grid(Nage=80, NZ=20, nebular=True, dust=False):
     """
-    Generate grid of spectra with FSPS    
+    Generate grid of spectra with FSPS
+
+    Returns:
+        spec (array, float) spectra, dimensions NZ*Nage
+        metallicities (array, float) metallicity array, units Z / Zsol
+        scale_factors (array, flota) age array in units of the scale factor
+        wl (array, float) wavelength array in Angstroms
     """
 
     if dust:
@@ -49,6 +55,8 @@ def pickle_grid(Nage, NZ, outdir='output/'):
 
     spec, Z, age, wl = grid(Nage=Nage, NZ=NZ, nebular=False, dust=False)
 
+    Z = Z * Zsol  # pickle files in absolute metal fractions
+
     pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
 
     pcl.dump(pickle, open('%s/output/fsps.p'%package_dir,'wb'))
@@ -58,10 +66,12 @@ def pickle_grid(Nage, NZ, outdir='output/'):
 if __name__ == "__main__":
 
     spec, Z, age, wl = grid(nebular=False, dust=False)
+    Z = Z * Zsol  # pickle files in absolute metal fractions
     pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
     pcl.dump(pickle, open('output/fsps.p','wb'))
 
     spec, Z, age, wl = grid(nebular=True, dust=False)
+    Z = Z * Zsol  # pickle files in absolute metal fractions
     pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
     pcl.dump(pickle, open('output/fsps_neb.p','wb'))
 
