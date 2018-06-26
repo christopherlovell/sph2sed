@@ -105,16 +105,12 @@ class sed:
 
 
 
-    def load_grid(self, name='fsps'): # , imf_correction=1):
+    def load_grid(self, name='fsps'):
         """
         Load intrinsic spectra grid.
 
         Args:
             name - str, SPS model name to load
-            imf_correction - correction factor from SPS model IMF to Chabrier
-
-            Salpeter -> Chabrier : 1.59
-            Kroupa   -> Chabrier : 1.06 
         """
          
         file_dir = '%s/intrinsic/output/%s.p'%(self.grid_directory,name)
@@ -131,8 +127,6 @@ class sed:
         self.grid[name]['wavelength'] = temp['Wavelength']
 
         self.initialise_grid(0.0)
-
-        # self.grid *= imf_correction
 
 
     def create_lookup_table(self, z, resolution=5000):
@@ -279,14 +273,16 @@ class sed:
 
         # Load grid appropriate for redshift
         if 'redshift' in self.galaxies[idx]:
-
             z = self.galaxies[idx]['redshift']
 
             if z not in self.grid.keys():
 
+                print('Generating new grid')
                 self.redshift_grid(z)
+        else: 
+            z = 0.0
 
-
+        
         self._w = weights.calculate_weights(self.grid[z]['metallicity'], 
                                             self.grid[z]['age'],
                                             np.array([metal,age,imass]).T)
@@ -454,59 +450,6 @@ class sed:
         self.galaxies[idx][label] = np.sum(self.galaxies[idx]['StarParticles']['InitialMass'][mask]) / (time * 1e9)  # Msol / yr
 
 
-#     def load_filters(self):
-#         
-#         filter_sublist = ['lasilla22_WFI_U38','VLT_vimos_U','hst_acsF435W','lasilla22_WFI_B','lasilla22_WFI_V',
-#                   'hst_acsF606W','VLT_vimos_R','lasilla22_WFI_Rc','hst_acsF775W','hst_acsF814W','hst_acsF850LP',
-#                   'hst_wfc3F125W','VLT_issac_J','wircam_J','hst_wfc3F140W','VLT_issac_H','wircam_Ks',
-#                   'VLT_issac_Ks','iracch1','iracch2','iracch3','iracch4','SubIB427','SubIB445','SubIB505',
-#                   'SubIB527','SubIB550','SubIB574','SubIB598','SubIB624','SubIB651','SubIB679','SubIB738',
-#                   'SubIB767','SubIB797','SubIB856']
-# 
-#         self.filters = {}
-# 
-#         for f in filter_sublist:
-#             self.filters[f] = np.loadtxt('%s/%s.res'%(self.filter_directory,f))
-
-
-#     def calculate_photometry(self, idx, spectra='Intrinsic', wavelength=True, filter_name='hst_acsF606W', verbose=False):
-#         """
-#         Calculate photometric luminosity for a galaxy given a photometric filter and chosen input spectrum
-# 
-#         Args:
-#             idx (int) galaxy index
-#             spectra (string) Spectra identifier
-#             wavelength (bool or array) if true, use self.wavelength array, otherwise specify custom wavelength array. Must match length of input spectra.
-#             filter_name (string) name of filter to use. see self.filters.keys for available filters.
-#             verbose (bool)
-#         Returns:
-#             photometric luminosity for given galaxy 
-# 
-#         """
-#    
-#         if wavelength:
-#             wl = self.wavelength
-#         else:
-#             if len(wavelength) != len(self.galaxies[idx]['Spectra'][spectra]):
-#                 raise ValueError('Wavelength and spectra arrays are not the same length')
-#             wl = wavelength
-# 
-#         if 'filters' not in self.__dict__:
-#             if verbose: print('Loading filters..')
-#             self.load_filters()
-#  
-#         if 'Photometry' not in self.galaxies[idx]: 
-#             self.galaxies[idx]['Photometry'] = {}
-# 
-#         spec = self.galaxies[idx]['Spectra'][spectra]
-# 
-#         # interpolate
-#         fnu = np.interp(x=self.filters[filter_name][:,0], xp=wl, fp=spec)
-# 
-#         # integrate
-#         int_filt = np.trapz(x=self.filters[filter_name][:,0], y=fnu)
-#         self.galaxies[idx]['Photometry'][filter_name] = np.log10(int_filt)
-
 
     def _initialise_pyphot(self):
         self.filters = pyphot.get_library()
@@ -543,7 +486,7 @@ class sed:
         
         filt_nu = c / filt_lamb
 
-        if filt_nu[0] > filt_nu[1]:
+        if ~np.all(np.diff(filt_nu) > 0):
             filt_nu = filt_nu[::-1]
             filt_trans = filt_trans[::-1]
     
@@ -556,7 +499,7 @@ class sed:
         return mag
     
 
-    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False):
+    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False, restframe_filter=True, redshift=None):
         """
         Args:
             idx (int) galaxy index
@@ -566,7 +509,10 @@ class sed:
             verbose (bool)
         """
 
-        z = self.galaxies[idx]['redshift']
+        if redshift is None:
+            z = self.galaxies[idx]['redshift']
+        else:
+            z = redshift
 
         if 'filters' not in self.__dict__:
             if verbose: print('Loading filters..')
@@ -576,17 +522,24 @@ class sed:
             self.galaxies[idx]['Photometry'] = {}
 
         # get pyphot filter
-        f = self.filters[filter_name] 
-    
+        f = self.filters[filter_name]
+
+        if restframe_filter:
+            filt_lambda = np.array(f.wavelength)
+        else:
+            filt_lambda = np.array(f.wavelength) / (1+z)
+
+
         if wavelength is None:
-            wavelength = self.grid[z]['wavelength'] # AA
+            wavelength = self.grid[self.galaxies[idx]['redshift']]['wavelength'] # AA
         
 
         spec = self.galaxies[idx]['Spectra'][spectra].copy()
         spec = self.flux_frequency_units(spec, wavelength)
 
         write_name = "%s %s"%(filter_name, spectra)
-        self.galaxies[idx]['Photometry'][write_name] = self.photo(spec, wavelength, f.transmit, f.wavelength)
+        M = self.photo(spec, wavelength, f.transmit, filt_lambda)
+        self.galaxies[idx]['Photometry'][write_name] = M
 
 
 
