@@ -65,12 +65,12 @@ def pickle_grid(Nage, NZ, outdir='output/'):
 
 if __name__ == "__main__":
 
-    spec, Z, age, wl = grid(nebular=False, dust=False)
+    spec, Z, age, wl = grid(nebular=False, dust=False, NZ=40)
     Z = Z * Zsol  # pickle files in absolute metal fractions
     pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
     pcl.dump(pickle, open('output/fsps.p','wb'))
 
-    spec, Z, age, wl = grid(nebular=True, dust=False)
+    spec, Z, age, wl = grid(nebular=True, dust=False, NZ=40)
     Z = Z * Zsol  # pickle files in absolute metal fractions
     pickle = {'Spectra': spec, 'Metallicity': Z, 'Age': age, 'Wavelength': wl}
     pcl.dump(pickle, open('output/fsps_neb.p','wb'))
