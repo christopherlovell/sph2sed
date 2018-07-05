@@ -499,7 +499,7 @@ class sed:
         return mag
     
 
-    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False, restframe_filter=True, redshift=None):
+    def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False, restframe_filter=True, redshift=None, user_filter=None):
         """
         Args:
             idx (int) galaxy index
@@ -522,7 +522,10 @@ class sed:
             self.galaxies[idx]['Photometry'] = {}
 
         # get pyphot filter
-        f = self.filters[filter_name]
+        if user_filter is not None:
+            f = user_filter
+        else:
+            f = self.filters[filter_name]
 
         if restframe_filter:
             filt_lambda = np.array(f.wavelength)
