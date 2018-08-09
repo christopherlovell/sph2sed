@@ -126,7 +126,47 @@ class sed:
         self.grid[name]['age'] = temp['Age']  # scale factor
         self.grid[name]['wavelength'] = temp['Wavelength']
 
-        self.initialise_grid(0.0)
+        self.initialise_grid(name)
+
+
+
+    def redshift_grid(self, z, z0=0.0):
+        """
+        Redshift grid ages, return new grid
+
+        Args:
+            z (float) redshift
+        """
+
+        if z == 0.:
+            print("No need to initialise new grid, z = 0")
+            return None
+        else:
+            
+            self.grid[z] = self.grid[z0].copy()
+
+            observed_lookback_time = self.cosmo.lookback_time(z).value
+
+            # redshift of age grid values
+            age_grid_z = [z_at_value(self.cosmo.scale_factor, a) for a in self.grid[z]['age']]
+            # convert to lookback time
+            age_grid_lookback = np.array([self.cosmo.lookback_time(z).value for z in age_grid_z])
+            # add observed lookback time
+            age_grid_lookback += observed_lookback_time
+
+            # truncate age grid by age of universe
+            age_mask = age_grid_lookback < self.cosmo.age(0).value
+            age_grid_lookback = age_grid_lookback[age_mask]
+
+            # convert new lookback times to redshift
+            age_grid_z = [z_at_value(self.cosmo.lookback_time, t * u.Gyr) for t in age_grid_lookback]
+            # convert redshift to scale factor
+            age_grid = self.cosmo.scale_factor(age_grid_z)
+
+            self.grid[z]['age'] = age_grid
+            self.grid[z]['grid'] = self.grid[z]['grid'][:,age_mask,:]
+            self.initialise_grid(z)
+
 
 
     def create_lookup_table(self, z, resolution=5000):
@@ -290,42 +330,6 @@ class sed:
         return self.grid[z]['grid'] * self._w
   
 
-    def redshift_grid(self, z, z0=0.0):
-        """
-        Redshift grid ages, return new grid
-
-        Args:
-            z (float) redshift
-        """
-
-        if z == 0.:
-            print("No need to initialise new grid, z = 0")
-            return None
-        else:
-            
-            self.grid[z] = self.grid[z0].copy()
-
-            observed_lookback_time = self.cosmo.lookback_time(z).value
-
-            # redshift of age grid values
-            age_grid_z = [z_at_value(self.cosmo.scale_factor, a) for a in self.grid[z]['age']]
-            # convert to lookback time
-            age_grid_lookback = np.array([self.cosmo.lookback_time(z).value for z in age_grid_z])
-            # add observed lookback time
-            age_grid_lookback += observed_lookback_time
-
-            # truncate age grid by age of universe
-            age_mask = age_grid_lookback < self.cosmo.age(0).value
-            age_grid_lookback = age_grid_lookback[age_mask]
-
-            # convert new lookback times to redshift
-            age_grid_z = [z_at_value(self.cosmo.lookback_time, t * u.Gyr) for t in age_grid_lookback]
-            # convert redshift to scale factor
-            age_grid = self.cosmo.scale_factor(age_grid_z)
-
-            self.grid[z]['age'] = age_grid
-            self.grid[z]['grid'] = self.grid[z]['grid'][:,age_mask,:]
-            self.initialise_grid(z)
 
 
 
@@ -350,7 +354,32 @@ class sed:
         self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
 
 
-    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen'):
+    def highz_dust(self, idx, gamma = -1.0, lambda_nu = 5500, key='highz', resampled=False):
+        
+        weighted_sed = self._calculate_weights(idx, resampled=resampled)
+
+        if key not in self.spectra:  # save spectra info
+            self.spectra[key] = {'lambda': self.grid[0.0]['wavelength'], 'units': 'Lsol / AA', 'scaler': None}
+
+        wl = self.grid[self.galaxies[idx]['redshift']]['wavelength']
+
+        dependencies = ['sf_gas_metallicity','sf_gas_mass','stellar_mass']
+
+        if not np.all([d in self.galaxies[idx] for d in dependencies]):
+            raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
+   
+        tau_0 = 1e-8
+
+        tau_V = tau_0 * self.galaxies[idx]['sf_gas_metallicity'] * self.galaxies[idx]['sf_gas_mass']
+
+        T = np.exp(-tau_V * ((wl / lambda_nu)**gamma))
+    
+        self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1)) * T         
+
+
+
+
+    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen', custom_redshift=None):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
@@ -379,6 +408,12 @@ class sed:
         wl = self.grid[self.galaxies[idx]['redshift']]['wavelength']
         lb = self.grid[self.galaxies[idx]['redshift']]['lookback_time']
 
+        if custom_redshift is None:
+            z = self.galaxies[idx]['redshift']
+        else:
+            z = custom_redshift
+        
+        
         if metal_dependent:
         
             if verbose: print("Adding metallicity dependence to optical depth values")
@@ -390,7 +425,7 @@ class sed:
            
             milkyway_mass = 10.8082109              
             Z_solar = 0.0134
-            M_0 = np.log10(1 + self.galaxies[idx]['redshift']) * 2.64 + 9.138
+            M_0 = np.log10(1 + z) * 2.64 + 9.138
             Z_0 = 9.102
             beta = 0.513
             logOHp12 = Z_0 + np.log(1 - np.exp(-1 * (10**(milkyway_mass - M_0))**beta)) # Zahid+14 Mstar - Z relation (see Trayford+15)
@@ -467,9 +502,27 @@ class sed:
         d = (10 * u.pc).to(u.cm).value
         Llamb = L * 3.826e33                 # erg s^-1 AA^1
         Llamb /= (4 * np.pi * d**2)          # erg s^-1 cm^-2 AA^-1
-        return Llamb * (wavelength**2 / c)  # erg s^-1 cm^-2 Hz^-1 
-    
+        return Llamb * (wavelength**2 / c)   # erg s^-1 cm^-2 Hz^-1 
+   
 
+    # @staticmethod
+    # def luminosity_units(f, wavelength):
+    #     """
+    #     Convert from erg s^-1 cm^-2 Hz^-1 -> Lsol Hz^-1
+    #     """
+    # 
+    #     d = (10 * u.pc).to(u.cm).value
+    #     L = f * (4 * np.pi * d**2)           # erg s^-1 Hz^-1
+    #     return L 
+
+
+    @staticmethod
+    def mean_luminosity(L, lamb, filt_trans, filt_lamb, trans_lim=1e-3):
+        mask = filt_trans > trans_lim
+        L_interp = np.interp(filt_lamb[mask], lamb, L)
+        return np.mean(L_interp * filt_trans[mask])
+
+    
     @staticmethod
     def photo(fnu, lamb, filt_trans, filt_lamb):
         """
@@ -496,7 +549,8 @@ class sed:
 
         mag = -2.5 * np.log10(a / b) - 48.6  # AB
     
-        return mag
+        # AB magnitude, mean monochromatic flux
+        return mag, a/b
     
 
     def calculate_photometry(self, idx, filter_name='SDSS_g', spectra='Intrinsic', wavelength=None, verbose=False, restframe_filter=True, redshift=None, user_filter=None):
@@ -541,8 +595,54 @@ class sed:
         spec = self.flux_frequency_units(spec, wavelength)
 
         write_name = "%s %s"%(filter_name, spectra)
-        M = self.photo(spec, wavelength, f.transmit, filt_lambda)
+        M = self.photo(spec, wavelength, f.transmit, filt_lambda)[0]
         self.galaxies[idx]['Photometry'][write_name] = M
+
+
+    @staticmethod
+    def Madau96(lamz, z):
+        """
+        courtesy of Ciaran
+        """
+    
+        lam = lamz/(1.+z)
+    
+        L = [1216.0,1026.0,973.0,950.0]
+        A = [0.0036,0.0017,0.0012,0.00093]
+    
+        expteff = np.zeros(lamz.shape)
+        teff = np.zeros(lamz.shape)
+    
+        for l,a in zip(L,A):
+            teff[lam<l] += a * (lamz[lam<l]/l)**3.46
+    
+    
+        expteff[lam>L[-1]] = np.exp(-teff[lam>L[-1]])
+    
+        s = [lam<=L[-1]]
+    
+        expteff[s] = np.exp(-(teff[s]+ 0.25*(lamz[s]/L[-1])**3*((1+z)**0.46-(lamz[s]/L[-1])**0.46)+9.4*(lamz[s]/L[-1])**1.5*((1+z)**0.18-(lamz[s]/L[-1])**0.18)-0.7*(lamz[s]/L[-1])**3*((lamz[s]/L[-1])**(-1.32)-(1+z)**(-1.32))+0.023*((lamz[s]/L[-1])**1.68-(1+z)**1.68)))
+    
+        expteff[lam>L[0]] = 1.0
+    
+        return expteff
+
+
+
+    def igm_absoprtion(self, idx, key, observed_wl, z):
+        """
+        Apply IGM absoprtion according to the Madau+96 prescription
+
+        Args:
+            idx - galaxy index
+            key - spectra key
+            observer_wl - *restframe* wavelength
+            z - redshift            
+        """
+
+        T = self.Madau96(observed_wl, z)
+
+        self.galaxies[idx]['Spectra'][key] *= T     
 
 
 
