@@ -355,6 +355,16 @@ class sed:
 
 
     def highz_dust(self, idx, gamma = -1.0, lambda_nu = 5500, key='highz', resampled=False):
+        """
+        Simple dust model for high-redshift
+
+        Args:
+            idx (int) galaxy index
+            gamma (float) exponent
+            lambda_nu (float) pivot wavelength
+            key (str) label
+            resampled (bool) whether to use resampled star particles or not
+        """
         
         weighted_sed = self._calculate_weights(idx, resampled=resampled)
 
@@ -499,9 +509,10 @@ class sed:
             L [Lsol AA^-1]
             wavelength [AA]
         """
-        d = (10 * u.pc).to(u.cm).value
-        Llamb = L * 3.826e33                 # erg s^-1 AA^1
-        Llamb /= (4 * np.pi * d**2)          # erg s^-1 cm^-2 AA^-1
+        c = 2.9979e18    # AA s^-1
+        d_factor = 1.1964951828447575e+40  # 4 * pi * (10 pc -> cm)**2
+        Llamb = L * 3.826e33               # erg s^-1 AA^1
+        Llamb /= d_factor                  # erg s^-1 cm^-2 AA^-1
         return Llamb * (wavelength**2 / c)   # erg s^-1 cm^-2 Hz^-1 
    
 
@@ -582,9 +593,9 @@ class sed:
             f = self.filters[filter_name]
 
         if restframe_filter:
-            filt_lambda = np.array(f.wavelength)
+            filt_lambda = np.array(f.wavelength.to('Angstrom'))
         else:
-            filt_lambda = np.array(f.wavelength) / (1+z)
+            filt_lambda = np.array(f.wavelength.to('Angstrom')) / (1+z)
 
 
         if wavelength is None:
