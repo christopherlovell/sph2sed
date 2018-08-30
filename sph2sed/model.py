@@ -80,32 +80,32 @@ class sed:
 
 
 
-    def initialise_grid(self, name):
-        
-        self.grid[name]['lookback_time'] = self.cosmo.lookback_time((1. / self.grid[name]['age']) - 1).value  # Gyr
+#     def initialise_grid(self, name, z=0.0):
+#         
+# 
+# 
+#         if self.grid[name]['age'][z][0] > self.grid[name]['age'][z][1]:
+#             print("Age array not sorted ascendingly. Sorting...\n")
+#             
+#             # sort age array ascendingly
+#             self.grid[name]['age'][z] = self.grid[name]['age'][z][::-1]
+#             self.grid[name]['lookback_time'][z] = self.grid[name]['lookback_time'][z][::-1]
+#             
+#             # sort sed array age ascending
+#             self.grid[name]['grid'] = self.grid[name]['grid'][:,::-1,:] 
+# 
+#         if self.grid[name]['metallicity'][0] > self.grid[name]['metallicity'][1]:
+#             print("Metallicity array not sorted ascendingly. Sorting...\n")
+#             
+#             # sort Z array ascendingly
+#             self.grid[name]['metallicity'] = self.grid[name]['metallicity'][::-1] 
+#             
+#             # sort sed array age ascending
+#             self.grid[name]['grid'] = self.grid[name]['grid'][::-1,:,:] 
 
-        if self.grid[name]['age'][0] > self.grid[name]['age'][1]:
-            print("Age array not sorted ascendingly. Sorting...\n")
-            
-            # sort age array ascendingly
-            self.grid[name]['age'] = self.grid[name]['age'][::-1]  
-            self.grid[name]['lookback_time'] = self.grid[name]['lookback_time'][::-1]
-            
-            # sort sed array age ascending
-            self.grid[name]['grid'] = self.grid[name]['grid'][:,::-1,:] 
-
-        if self.grid[name]['metallicity'][0] > self.grid[name]['metallicity'][1]:
-            print("Metallicity array not sorted ascendingly. Sorting...\n")
-            
-            # sort Z array ascendingly
-            self.grid[name]['metallicity'] = self.grid[name]['metallicity'][::-1] 
-            
-            # sort sed array age ascending
-            self.grid[name]['grid'] = self.grid[name]['grid'][::-1,:,:] 
 
 
-
-    def load_grid(self, name='fsps'):
+    def load_grid(self, name='fsps', z0=0.0):
         """
         Load intrinsic spectra grid.
 
@@ -118,15 +118,30 @@ class sed:
         print("Loading %s model from: \n\n%s\n"%(name, file_dir))
         temp = pcl.load(open(file_dir, 'rb'))
 
-        name = 0.0
-        self.grid = {name: {'grid': None, 'age': None, 'metallicity':None}}
+        self.grid = {'name': name, 'grid': None, 'age': None, 'metallicity':None}
+        self.grid['grid'] = temp['Spectra']
+        self.grid['metallicity'] = temp['Metallicity']
+        self.grid['age'] = {z0: temp['Age']}  # scale factor
+        self.grid['lookback_time'] = {z0: self.cosmo.lookback_time((1. / temp['Age']) - 1).value}  # Gyr
+        self.grid['age_mask'] = {z0: np.ones(len(temp['Age']), dtype='bool')}
+        self.grid['wavelength'] = temp['Wavelength']
 
-        self.grid[name]['grid'] = temp['Spectra']
-        self.grid[name]['metallicity'] = temp['Metallicity']
-        self.grid[name]['age'] = temp['Age']  # scale factor
-        self.grid[name]['wavelength'] = temp['Wavelength']
+        ## Sort grids
+        if self.grid['age'][z0][0] > self.grid['age'][z0][1]:
+             print("Age array not sorted ascendingly. Sorting...\n")
+             self.grid['age'][z0] = self.grid['age'][z0][::-1]
+             self.grid['age_mask'][z0] = self.grid['age_mask'][z0][::-1]
+             self.grid['lookback_time'][z0] = self.grid['lookback_time'][z0][::-1]
+             self.grid['grid'] = self.grid['grid'][:,::-1,:] 
 
-        self.initialise_grid(name)
+
+        if self.grid['metallicity'][0] > self.grid['metallicity'][1]:
+            print("Metallicity array not sorted ascendingly. Sorting...\n")
+            self.grid['metallicity'] = self.grid['metallicity'][::-1]
+            self.grid['grid'] = self.grid['grid'][::-1,:,:]
+
+        
+        # self.initialise_grid(name)
 
 
 
@@ -138,17 +153,17 @@ class sed:
             z (float) redshift
         """
 
-        if z == 0.:
-            print("No need to initialise new grid, z = 0")
+        if z == z0:
+            print("No need to initialise new grid, z = z0")
             return None
         else:
             
-            self.grid[z] = self.grid[z0].copy()
+            # self.grid[z] = self.grid[z0].copy()
 
             observed_lookback_time = self.cosmo.lookback_time(z).value
 
             # redshift of age grid values
-            age_grid_z = [z_at_value(self.cosmo.scale_factor, a) for a in self.grid[z]['age']]
+            age_grid_z = [z_at_value(self.cosmo.scale_factor, a) for a in self.grid['age'][z0]]
             # convert to lookback time
             age_grid_lookback = np.array([self.cosmo.lookback_time(z).value for z in age_grid_z])
             # add observed lookback time
@@ -163,10 +178,10 @@ class sed:
             # convert redshift to scale factor
             age_grid = self.cosmo.scale_factor(age_grid_z)
 
-            self.grid[z]['age'] = age_grid
-            self.grid[z]['grid'] = self.grid[z]['grid'][:,age_mask,:]
-            self.initialise_grid(z)
-
+            self.grid['age'][z] = age_grid
+            self.grid['lookback_time'][z] = age_grid_lookback
+            self.grid['age_mask'][z] = age_mask
+            # self.initialise_grid(z)
 
 
     def create_lookup_table(self, z, resolution=5000):
@@ -220,7 +235,7 @@ class sed:
         if (self.a_lookup.min() > self.cosmo.scale_factor(self.galaxies[idx]['redshift'])) |\
                 (self.a_lookup.max() < self.cosmo.scale_factor(self.galaxies[idx]['redshift'])):
 
-            print('Lookup table out of range. Reloading')
+            # print('Lookup table out of range. Reloading')
             self.load_lookup_table(self.galaxies[idx]['redshift'])
             
         lookback_time_z0 = np.float32(self.cosmo.lookback_time(self.galaxies[idx]['redshift']).value)
@@ -315,7 +330,7 @@ class sed:
         if 'redshift' in self.galaxies[idx]:
             z = self.galaxies[idx]['redshift']
 
-            if z not in self.grid.keys():
+            if z not in self.grid['age'].keys():
 
                 print('Generating new grid')
                 self.redshift_grid(z)
@@ -323,17 +338,41 @@ class sed:
             z = 0.0
 
         
-        self._w = weights.calculate_weights(self.grid[z]['metallicity'], 
-                                            self.grid[z]['age'],
+        self._w = weights.calculate_weights(self.grid['metallicity'], 
+                                            self.grid['age'][z],
                                             np.array([metal,age,imass]).T)
 
-        return self.grid[z]['grid'] * self._w
+        return self.grid['grid'][:,self.grid['age_mask'][z],:] * self._w
   
 
 
+    def save_spectra(self, idx, spec, key):
+        """
+        Save spectra info
+        """
+
+        if key not in self.spectra:
+            self.spectra[key] = {'grid_name': self.grid['name'],
+                                 'lambda': self.grid['wavelength'], 
+                                 'units': 'Lsol / AA', 
+                                 'scaler': None}
+
+        # combine single composite spectrum
+        self.galaxies[idx]['Spectra'][key] = spec
 
 
-    def intrinsic_spectra(self, idx, key='Intrinsic', resampled=False):
+
+    def generate_spectra(self, idx, methods, resampled=False, key='fsps'):
+
+        weighted_sed = self._calculate_weights(idx, resampled=resampled)
+
+        for key, value in methods.items():
+            spec = value(weighted_sed=weighted_sed)
+            self.save_spectra(idx, spec, key)
+
+
+
+    def intrinsic_spectra(self, weighted_sed, idx=False): #idx, key='Intrinsic', resampled=False):
         """
         Calculate composite intrinsic spectra.
 
@@ -346,15 +385,24 @@ class sed:
             sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
         """
 
-        weighted_sed = self._calculate_weights(idx, resampled=resampled)
+        # weighted_sed = self._calculate_weights(idx, resampled=resampled)
         
-        if key not in self.spectra:  # save spectra info
-            self.spectra[key] = {'lambda': self.grid[0.0]['wavelength'], 'units': 'Lsol / AA', 'scaler': None}
+        # intrinsic_spec = np.nansum(weighted_sed, (0,1))
+        return np.nansum(weighted_sed, (0,1))
 
-        self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))     # combine single composite spectrum
+        # self.save_spectra(idx, intrinsic_spec, key)
+
+        # if key not in self.spectra:
+        #     self.spectra[key] = {'grid_name': self.grid['name'],
+        #                          'lambda': self.grid['wavelength'], 
+        #                          'units': 'Lsol / AA', 
+        #                          'scaler': None}
+
+        # # combine single composite spectrum
+        # self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))
 
 
-    def highz_dust(self, idx, gamma = -1.0, lambda_nu = 5500, key='highz', resampled=False):
+    def highz_dust(self, idx, wl, gamma=-1.0, tau_0=1e-8, lambda_nu=5500, key='highz', resampled=False):
         """
         Simple dust model for high-redshift
 
@@ -366,30 +414,28 @@ class sed:
             resampled (bool) whether to use resampled star particles or not
         """
         
-        weighted_sed = self._calculate_weights(idx, resampled=resampled)
+        # weighted_sed = self._calculate_weights(idx, resampled=resampled)
 
-        if key not in self.spectra:  # save spectra info
-            self.spectra[key] = {'lambda': self.grid[0.0]['wavelength'], 'units': 'Lsol / AA', 'scaler': None}
+        # wl = self.grid['wavelength']
 
-        wl = self.grid[self.galaxies[idx]['redshift']]['wavelength']
-
-        dependencies = ['sf_gas_metallicity','sf_gas_mass','stellar_mass']
+        dependencies = ['sf_gas_metallicity','sf_gas_mass']
 
         if not np.all([d in self.galaxies[idx] for d in dependencies]):
             raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
-   
-        tau_0 = 1e-8
 
         tau_V = tau_0 * self.galaxies[idx]['sf_gas_metallicity'] * self.galaxies[idx]['sf_gas_mass']
 
         T = np.exp(-tau_V * ((wl / lambda_nu)**gamma))
-    
-        self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1)) * T         
+
+        # spec = np.nansum(weighted_sed, (0,1)) * T
+
+        return T #spec
+        # self.save_spectra(idx, spec, key)
+        # self.galaxies[idx]['Spectra'][key] = spec
 
 
 
-
-    def dust_screen(self, idx, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen', custom_redshift=None):
+    def dust_screen(self, idx, weighted_sed, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen', custom_redshift=None):
         """
         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
 
@@ -410,13 +456,10 @@ class sed:
 
         """
 
-        # if key not in self.spectra:  # save spectra info
-        #     self.spectra[key] = {'lambda': self.wavelength, 'units': 'Lsol / AA', 'scaler': None}
-    
-        weighted_sed = self._calculate_weights(idx, resampled=resampled)
+        # weighted_sed = self._calculate_weights(idx, resampled=resampled)
 
-        wl = self.grid[self.galaxies[idx]['redshift']]['wavelength']
-        lb = self.grid[self.galaxies[idx]['redshift']]['lookback_time']
+        wl = self.grid['wavelength']
+        lb = self.grid['lookback_time'][self.galaxies[idx]['redshift']]
 
         if custom_redshift is None:
             z = self.galaxies[idx]['redshift']
@@ -461,15 +504,16 @@ class sed:
         T = np.exp(-1 * tau_ism * (wl / lambda_nu)**-0.7)
         spec_B *= T
     
-        if metal_dependent:
-            self.galaxies[idx]['Spectra'][key] = spec_A + spec_B 
-        else:
-            self.galaxies[idx]['Spectra'][key] = spec_A + spec_B 
+        if metal_dependent: spec = spec_A + spec_B 
+        else: spec = spec_A + spec_B 
 
         self.tau_ism = tau_ism
         self.tau_cloud = tau_cloud
         self.tdisp = tdisp
         self.lambda_nu = lambda_nu
+
+        return spec
+        # self.save_spectra(idx, spec, key)
 
 
     def recalculate_sfr(self, idx, z, time=0.1, label='sfr_100Myr'):
@@ -640,20 +684,23 @@ class sed:
 
 
 
-    def igm_absoprtion(self, idx, key, observed_wl, z):
+    def igm_absoprtion(self, idx, key, observed_wl, z, inplace=True):
         """
         Apply IGM absoprtion according to the Madau+96 prescription
 
         Args:
             idx - galaxy index
             key - spectra key
-            observer_wl - *restframe* wavelength
+            observer_wl - *observer* frame wavelength
             z - redshift            
         """
 
         T = self.Madau96(observed_wl, z)
 
-        self.galaxies[idx]['Spectra'][key] *= T     
+        if inplace:
+            self.galaxies[idx]['Spectra'][key] *= T 
+        else:
+            return self.galaxies[idx]['Spectra'][key] * T
 
 
 
