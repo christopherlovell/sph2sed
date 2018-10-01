@@ -380,7 +380,7 @@ class sed:
     
 
     @staticmethod
-    def worker_method(d, idx, A, Z, grid):
+    def highz_worker(d, idx, key, A, Z, grid):
         """
         An example worker method that calculates the intrinsic and dust attenuated spectra
         """ 
@@ -389,16 +389,19 @@ class sed:
                            d[idx]['InitialMass']])
 
         didx = d[idx]
-        didx['Intrinsic'] = np.nansum(weights.calculate_weights(Z,A,in_arr.T) * grid, (0,1))
+        didx['Intrinsic %s'%key] = np.nansum(weights.calculate_weights(Z,A,in_arr.T) * grid, (0,1))
         d[idx] = didx
 
 
 
-    def parallel_spectra(self, worker_method=None, resampled=False, z=None):
+    def highz_dust_parallel(self, key, worker_method=None, resampled=False, z=None, tau_0=1e-8):
+        """
+        parallel highz dust method
+        """
 
         # if no worker_method provided, use the default method provided
         if worker_method is None:
-            worker_method = self.worker_method
+            worker_method = self.highz_worker
 
         if z is None:
             z = self.redshift
@@ -416,7 +419,7 @@ class sed:
         A = self.grid['age'][z]
         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
 
-        job = [mp.Process(target=self.worker_method, args=(d, idx, A, Z, grid)) \
+        job = [mp.Process(target=worker_method, args=(d, idx, A, Z, grid)) \
                 for idx in self.galaxies.keys()]
 
         # start jobs and join
@@ -428,118 +431,156 @@ class sed:
 
         # save to class instance
         for idx in self.galaxies.keys():
-            for key in d_perm[idx].keys():
-                if key not in ['Metallicity','Age','InitialMass']:
-                    self.galaxies[idx]['Spectra'][key] = d_perm[idx][key]
-
-       
-        if key not in self.spectra:
-            self.spectra[key] = {'grid_name': self.grid['name'],
-                                 'lambda': self.grid['wavelength'],
-                                 'units': 'Lsol / AA',
-                                 'scaler': None}
+            for k in d_perm[idx].keys():
+                if k not in ['Metallicity','Age','InitialMass']:
+                    self.galaxies[idx]['Spectra'][k] = d_perm[idx][k]
 
 
+        self.spectra['Intrinsic %s'%key] = {'grid_name': self.grid['name'],
+                                            'lambda': self.grid['wavelength'],
+                                            'units': 'Lsol / AA',
+                                            'scaler': None}
 
-#     def save_spectra(self, idx, spec, key):
-#         """
-#         Save spectra info
-#         """
-# 
-#         if key not in self.spectra:
-#             self.spectra[key] = {'grid_name': self.grid['name'],
-#                                  'lambda': self.grid['wavelength'], 
-#                                  'units': 'Lsol / AA', 
-#                                  'scaler': None}
-# 
-#         # combine single composite spectrum
-#         self.galaxies[idx]['Spectra'][key] = spec
+        ## Dust
+        sf_gas_metallicity = np.array([value['sf_gas_metallicity'] \
+                for key, value in self.galaxies.items()])
 
+        sf_gas_mass = np.array([value['sf_gas_mass'] \
+                for key, value in self.galaxies.items()])
 
+        tau_V = self.simple_metallicity_factor(sf_gas_metallicity, 
+                                               sf_gas_mass, tau_0=tau_0)
 
-#     def generate_spectra(self, idx, methods, resampled=False, key='fsps'):
-# 
-#         weighted_sed = self._calculate_weights(idx, resampled=resampled)
-# 
-#         for key, value in methods.items():
-#             spec = value(weighted_sed=weighted_sed)
-#             self.save_spectra(idx, spec, key)
+        T = self.dust_transmission(self.grid['wavelength'], tau_V)
+
+        # apply to intrinsic spectra
+        for i, idx in enumerate(self.galaxies.keys()):
+            self.galaxies[idx]['Spectra']['Dust %s'%key] = \
+                    self.galaxies[idx]['Spectra']['Intrinsic'] * T[i]
 
 
-
-#     def intrinsic_spectra(self, weighted_sed, idx=False): #idx, key='Intrinsic', resampled=False):
-#         """
-#         Calculate composite intrinsic spectra.
-# 
-#         Args:
-#             idx (int) galaxy index
-#             ley (str) label to give generated spectra 
-#             resampled (bool) flg to use resampled young stellar particles (see `resample_recent_sf`)
-# 
-#         Returns:
-#             sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
-#         """
-# 
-#         # weighted_sed = self._calculate_weights(idx, resampled=resampled)
-#         
-#         # intrinsic_spec = np.nansum(weighted_sed, (0,1))
-#         return np.nansum(weighted_sed, (0,1))
-# 
-#         # self.save_spectra(idx, intrinsic_spec, key)
-# 
-#         # if key not in self.spectra:
-#         #     self.spectra[key] = {'grid_name': self.grid['name'],
-#         #                          'lambda': self.grid['wavelength'], 
-#         #                          'units': 'Lsol / AA', 
-#         #                          'scaler': None}
-# 
-#         # # combine single composite spectrum
-#         # self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))
+        self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
+                                'lambda': self.grid['wavelength'],
+                                'units': 'Lsol / AA',
+                                'scaler': None}
 
 
-#     def highz_dust(self, idx, wl, gamma=-1.0, tau_0=1e-8, lambda_nu=5500, key='highz', resampled=False):
-#         """
-#         Simple dust model for high-redshift
-# 
-#         Args:
-#             idx (int) galaxy index
-#             gamma (float) exponent
-#             lambda_nu (float) pivot wavelength
-#             key (str) label
-#             resampled (bool) whether to use resampled star particles or not
-#         """
-#         
-#         # weighted_sed = self._calculate_weights(idx, resampled=resampled)
-# 
-#         # wl = self.grid['wavelength']
-# 
-#         dependencies = ['sf_gas_metallicity','sf_gas_mass']
-# 
-#         if not np.all([d in self.galaxies[idx] for d in dependencies]):
-#             raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
-# 
-#         tau_V = tau_0 * self.galaxies[idx]['sf_gas_metallicity'] * self.galaxies[idx]['sf_gas_mass']
-# 
-#         T = np.exp(-tau_V * ((wl / lambda_nu)**gamma))
-# 
-#         # spec = np.nansum(weighted_sed, (0,1)) * T
-# 
-#         return T #spec
-#         # self.save_spectra(idx, spec, key)
-#         # self.galaxies[idx]['Spectra'][key] = spec
-
-
-    def dust_transmission(self, wl, tau_V, gamma=-1.0, lambda_nu=5500):
+    @staticmethod
+    def dust_transmission(wl, tau_V, gamma=-1.0, lambda_nu=5500):
 
         if len(tau_V) == 1: tau_V = [tau_V]
 
         return np.array([np.exp(-tau * ((wl / lambda_nu)**gamma)) for tau in tau_V])
 
 
-
-    def simple_metallicity_factor(self, sf_gas_metallicity, sf_gas_mass, tau_0=1e-8):
+    @staticmethod
+    def simple_metallicity_factor(sf_gas_metallicity, sf_gas_mass, tau_0=1e-8):
         return sf_gas_metallicity * sf_gas_mass * tau_0
 
+
+
+    @staticmethod
+    def zdependent_worker(d, idx, key, temp_dict, A, Z, lookback, grid, wl, lambda_nu, tdisp):
+        """
+        Z-dependent dust model
+        """
+        # in_arr = np.array([d[idx]['Metallicity'],
+        #                    d[idx]['Age'],
+        #                    d[idx]['InitialMass']])
+
+
+        in_arr = np.array([temp_dict['Metallicity'],
+                           temp_dict['Age'],
+                           temp_dict['InitialMass']])
+
+        didx = d[idx]
+
+        weighted_sed = weights.calculate_weights(Z,A,in_arr.T) * grid
+
+        didx['Intrinsic %s'%key] = np.nansum(weighted_sed, (0,1))
+       
+        ## Dust
+        normed_wl = wl / lambda_nu
+
+        spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
+        T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-0.7)  # da Cunha+08 slope of -1.3
+        spec_A *= T
+
+        spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
+        T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-0.7)
+        spec_B *= T
+   
+        didx['Dust %s'%key] = spec_A + spec_B 
+        d[idx] = didx
+
+
+    def zdependent_parallel(self, key, worker_method=None, resampled=False, z=None, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2):
+        """
+        parallel highz dust method
+        """
+
+        # if no worker_method provided, use the default method provided
+        if worker_method is None:
+            worker_method = self.zdependent_worker
+
+        if z is None:
+            z = self.redshift
+
+        ## Dust
+        sf_gas_metallicity = np.array([value['sf_gas_metallicity'] for key, value in self.galaxies.items()])
+        sf_gas_mass = np.array([value['sf_gas_mass'] for key, value in self.galaxies.items()])
+        stellar_mass = np.array([value['stellar_mass'] for key, value in self.galaxies.items()])
+
+        Z_factor = self.metallicity_factor(0.1, sf_gas_metallicity, sf_gas_mass, stellar_mass)
+
+        # create parallel dict
+        manager = mp.Manager()
+        d = manager.dict()
+
+        # save particle data to parallel dict
+        temp_dict = {}
+        for i,idx in enumerate(self.galaxies.keys()):
+            temp = self.particle_dict(idx=idx, resampled=resampled)
+            temp['tau_ism'] = Z_factor[i] * tau_ism
+            temp['tau_cloud'] = Z_factor[i] * tau_cloud
+            temp_dict[idx] = temp
+
+            d[idx] = {}
+
+
+        Z = self.grid['metallicity']
+        A = self.grid['age'][z]
+        lookback = self.grid['lookback_time'][z]
+        grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+        wl = self.grid['wavelength']
+
+        job = [mp.Process(target=worker_method, 
+                          args=(d, idx, key, temp_dict[idx], A, Z, lookback, grid, wl, lambda_nu, tdisp)) \
+                   for idx in self.galaxies.keys()]
+
+        # start jobs and join
+        _ = [p.start() for p in job]
+        _ = [p.join() for p in job]
+
+        # convert dict_proxy to dict
+        d_perm = d._getvalue()
+
+        # save to class instance
+        for idx in self.galaxies.keys():
+            for k in d_perm[idx].keys():
+                if k not in ['Metallicity','Age','InitialMass','tau_ism','tau_cloud']:
+                    self.galaxies[idx]['Spectra'][k] = d_perm[idx][k]
+
+
+        self.spectra['Intrinsic %s'%key] = {'grid_name': self.grid['name'],
+                                            'lambda': self.grid['wavelength'],
+                                            'units': 'Lsol / AA',
+                                            'scaler': None}
+
+        self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
+                                       'lambda': self.grid['wavelength'],
+                                       'units': 'Lsol / AA',
+                                'scaler': None}
 
 
     def metallicity_factor(self,z,sf_gas_metallicity,sf_gas_mass,stellar_mass):
@@ -575,85 +616,85 @@ class sed:
 
 
 
-    def dust_screen(self, idx, weighted_sed, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen', custom_redshift=None):
-        """
-        Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
-
-        Metallicity dependent dust screen requires inclusion of mass weighted star forming gas phase metallicity.
-
-        Args:
-            resampled (bool) flag, use resampled recently formed star particles (see `resample_recent_sf`)
-            tdisp (float) birth cloud dispersion time, Gyr
-            tau_ism (float) ISM optical depth at lambda_nu
-            tau_cloud (float) birth cloud optical depth at lambda_nu
-            lambda_nu (float) reference wavelength for optical depth values
-            metal_dependent (bool) flag for applying metallicity dependent screen
-
-        Returns:
-            self
-
-            Adds 'Screen Spectra' or 'Z-Screen Spectra' array to galaxy dict
-
-        """
-
-        # weighted_sed = self._calculate_weights(idx, resampled=resampled)
-
-        wl = self.grid['wavelength']
-        lb = self.grid['lookback_time'][self.galaxies[idx]['redshift']]
-
-        if custom_redshift is None:
-            z = self.galaxies[idx]['redshift']
-        else:
-            z = custom_redshift
-        
-        
-        if metal_dependent:
-        
-            if verbose: print("Adding metallicity dependence to optical depth values")
-           
-            dependencies = ['sf_gas_metallicity','sf_gas_mass','stellar_mass']
-
-            if not np.all([d in self.galaxies[idx] for d in dependencies]):
-                raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
-           
-            milkyway_mass = 10.8082109              
-            Z_solar = 0.0134
-            M_0 = np.log10(1 + z) * 2.64 + 9.138
-            Z_0 = 9.102
-            beta = 0.513
-            logOHp12 = Z_0 + np.log(1 - np.exp(-1 * (10**(milkyway_mass - M_0))**beta)) # Zahid+14 Mstar - Z relation (see Trayford+15)
-            Z = 10**(logOHp12 - 8.69)  # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
-
-            ## Gas mass fractions
-            gas_fraction = self.galaxies[idx]['sf_gas_mass'] / self.galaxies[idx]['stellar_mass']
-            MW_gas_fraction = 0.1
-
-            metallicity_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
-
-            self.galaxies[idx]['metallicity_factor'] = metallicity_factor            
-
-            tau_ism *= metallicity_factor
-            tau_cloud *= metallicity_factor
-
-
-        spec_A = np.nansum(weighted_sed[:,lb < tdisp,:], (0,1))
-        T = np.exp(-1 * (tau_ism + tau_cloud) * (wl / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
-        spec_A *= T
-
-        spec_B = np.nansum(weighted_sed[:,lb >= tdisp,:], (0,1))
-        T = np.exp(-1 * tau_ism * (wl / lambda_nu)**-0.7)
-        spec_B *= T
-    
-        if metal_dependent: spec = spec_A + spec_B 
-        else: spec = spec_A + spec_B 
-
-        self.tau_ism = tau_ism
-        self.tau_cloud = tau_cloud
-        self.tdisp = tdisp
-        self.lambda_nu = lambda_nu
-
-        return spec
-        # self.save_spectra(idx, spec, key)
+#     def dust_screen(self, idx, weighted_sed, resampled=False, tdisp=1e-2, tau_ism=0.33, tau_cloud=0.67, lambda_nu=5500, metal_dependent=False, verbose=False, key='Screen', custom_redshift=None):
+#         """
+#         Calculate composite spectrum with age dependent, and optional metallicity dependent, dust screen attenuation.
+# 
+#         Metallicity dependent dust screen requires inclusion of mass weighted star forming gas phase metallicity.
+# 
+#         Args:
+#             resampled (bool) flag, use resampled recently formed star particles (see `resample_recent_sf`)
+#             tdisp (float) birth cloud dispersion time, Gyr
+#             tau_ism (float) ISM optical depth at lambda_nu
+#             tau_cloud (float) birth cloud optical depth at lambda_nu
+#             lambda_nu (float) reference wavelength for optical depth values
+#             metal_dependent (bool) flag for applying metallicity dependent screen
+# 
+#         Returns:
+#             self
+# 
+#             Adds 'Screen Spectra' or 'Z-Screen Spectra' array to galaxy dict
+# 
+#         """
+# 
+#         # weighted_sed = self._calculate_weights(idx, resampled=resampled)
+# 
+#         wl = self.grid['wavelength']
+#         lb = self.grid['lookback_time'][self.galaxies[idx]['redshift']]
+# 
+#         if custom_redshift is None:
+#             z = self.galaxies[idx]['redshift']
+#         else:
+#             z = custom_redshift
+#         
+#         
+#         if metal_dependent:
+#         
+#             if verbose: print("Adding metallicity dependence to optical depth values")
+#            
+#             dependencies = ['sf_gas_metallicity','sf_gas_mass','stellar_mass']
+# 
+#             if not np.all([d in self.galaxies[idx] for d in dependencies]):
+#                 raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
+#            
+#             milkyway_mass = 10.8082109              
+#             Z_solar = 0.0134
+#             M_0 = np.log10(1 + z) * 2.64 + 9.138
+#             Z_0 = 9.102
+#             beta = 0.513
+#             logOHp12 = Z_0 + np.log(1 - np.exp(-1 * (10**(milkyway_mass - M_0))**beta)) # Zahid+14 Mstar - Z relation (see Trayford+15)
+#             Z = 10**(logOHp12 - 8.69)  # Convert from 12 + log()/H) -> Log10(Z / Z_solar) , Allende Prieto+01 (see Schaye+14, fig.13)
+# 
+#             ## Gas mass fractions
+#             gas_fraction = self.galaxies[idx]['sf_gas_mass'] / self.galaxies[idx]['stellar_mass']
+#             MW_gas_fraction = 0.1
+# 
+#             metallicity_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
+# 
+#             self.galaxies[idx]['metallicity_factor'] = metallicity_factor            
+# 
+#             tau_ism *= metallicity_factor
+#             tau_cloud *= metallicity_factor
+# 
+# 
+#         spec_A = np.nansum(weighted_sed[:,lb < tdisp,:], (0,1))
+#         T = np.exp(-1 * (tau_ism + tau_cloud) * (wl / lambda_nu)**-1.3)  # da Cunha+08 slope of -1.3
+#         spec_A *= T
+# 
+#         spec_B = np.nansum(weighted_sed[:,lb >= tdisp,:], (0,1))
+#         T = np.exp(-1 * tau_ism * (wl / lambda_nu)**-0.7)
+#         spec_B *= T
+#     
+#         if metal_dependent: spec = spec_A + spec_B 
+#         else: spec = spec_A + spec_B 
+# 
+#         self.tau_ism = tau_ism
+#         self.tau_cloud = tau_cloud
+#         self.tdisp = tdisp
+#         self.lambda_nu = lambda_nu
+# 
+#         return spec
+#         # self.save_spectra(idx, spec, key)
 
 
     def recalculate_sfr(self, idx, z, time=0.1, label='sfr_100Myr'):
@@ -783,7 +824,7 @@ class sed:
 
 
         if wavelength is None:
-            wavelength = self.grid[self.galaxies[idx]['redshift']]['wavelength'] # AA
+            wavelength = self.spectra[spectra]['lambda'] # AA
         
 
         spec = self.galaxies[idx]['Spectra'][spectra].copy()
@@ -897,34 +938,7 @@ class sed:
             raise ValueError('Could not find "filename" in class instance.')
 
 
-#     @staticmethod 
-#     def calculate_xi_ion(Lnu, frequency):
-#         """
-#         Calculate LyC photon production efficiency
-#     
-#         Args:
-#             Lnu: Lsol Hz^-1
-#             frequency: Hz
-#     
-#         Returns:
-#             xi_ion: units [erg^-1 Hz]
-#         """
-#     
-#         # filter nan sed values
-#         mask = ~np.isnan(Lnu)
-#         Lnu = Lnu[mask]
-#         frequency = frequency[mask]
-#     
-#         # normalisation luminosity
-#         Lnu_0p15 = Lnu[np.abs((c * 1e6 / frequency) - 0.15).argmin()]
-#     
-#         integ = Lnu / (6.626e-34 * frequency * 1e7) # energy in ergs
-#         integ /= Lnu_0p15  # normalise
-#     
-#         b = c / 912e-10
-#         limits = frequency>b
-#     
-#         return np.trapz(integ[limits][::-1],frequency[limits][::-1])
+
 
 
 def query_yes_no(question, default="yes"):
@@ -959,3 +973,119 @@ def query_yes_no(question, default="yes"):
             sys.stdout.write("Please respond with 'yes' or 'no' "
                              "(or 'y' or 'n').\n")
 
+
+
+
+#     def save_spectra(self, idx, spec, key):
+#         """
+#         Save spectra info
+#         """
+# 
+#         if key not in self.spectra:
+#             self.spectra[key] = {'grid_name': self.grid['name'],
+#                                  'lambda': self.grid['wavelength'], 
+#                                  'units': 'Lsol / AA', 
+#                                  'scaler': None}
+# 
+#         # combine single composite spectrum
+#         self.galaxies[idx]['Spectra'][key] = spec
+
+#     def generate_spectra(self, idx, methods, resampled=False, key='fsps'):
+# 
+#         weighted_sed = self._calculate_weights(idx, resampled=resampled)
+# 
+#         for key, value in methods.items():
+#             spec = value(weighted_sed=weighted_sed)
+#             self.save_spectra(idx, spec, key)
+
+#     def intrinsic_spectra(self, weighted_sed, idx=False): #idx, key='Intrinsic', resampled=False):
+#         """
+#         Calculate composite intrinsic spectra.
+# 
+#         Args:
+#             idx (int) galaxy index
+#             ley (str) label to give generated spectra 
+#             resampled (bool) flg to use resampled young stellar particles (see `resample_recent_sf`)
+# 
+#         Returns:
+#             sed array, label `key`, with the same length as raw_sed, units L (e.g. erg s^-1 Hz^-1)
+#         """
+# 
+#         # weighted_sed = self._calculate_weights(idx, resampled=resampled)
+#         
+#         # intrinsic_spec = np.nansum(weighted_sed, (0,1))
+#         return np.nansum(weighted_sed, (0,1))
+# 
+#         # self.save_spectra(idx, intrinsic_spec, key)
+# 
+#         # if key not in self.spectra:
+#         #     self.spectra[key] = {'grid_name': self.grid['name'],
+#         #                          'lambda': self.grid['wavelength'], 
+#         #                          'units': 'Lsol / AA', 
+#         #                          'scaler': None}
+# 
+#         # # combine single composite spectrum
+#         # self.galaxies[idx]['Spectra'][key] = np.nansum(weighted_sed, (0,1))
+
+#     def highz_dust(self, idx, wl, gamma=-1.0, tau_0=1e-8, lambda_nu=5500, key='highz', resampled=False):
+#         """
+#         Simple dust model for high-redshift
+# 
+#         Args:
+#             idx (int) galaxy index
+#             gamma (float) exponent
+#             lambda_nu (float) pivot wavelength
+#             key (str) label
+#             resampled (bool) whether to use resampled star particles or not
+#         """
+#         
+#         # weighted_sed = self._calculate_weights(idx, resampled=resampled)
+# 
+#         # wl = self.grid['wavelength']
+# 
+#         dependencies = ['sf_gas_metallicity','sf_gas_mass']
+# 
+#         if not np.all([d in self.galaxies[idx] for d in dependencies]):
+#             raise ValueError('Required key missing from galaxy dict (idx %s)\ndependencies: %s'%(idx, dependencies))
+# 
+#         tau_V = tau_0 * self.galaxies[idx]['sf_gas_metallicity'] * self.galaxies[idx]['sf_gas_mass']
+# 
+#         T = np.exp(-tau_V * ((wl / lambda_nu)**gamma))
+# 
+#         # spec = np.nansum(weighted_sed, (0,1)) * T
+# 
+#         return T #spec
+#         # self.save_spectra(idx, spec, key)
+#         # self.galaxies[idx]['Spectra'][key] = spec
+
+
+
+
+#     @staticmethod 
+#     def calculate_xi_ion(Lnu, frequency):
+#         """
+#         Calculate LyC photon production efficiency
+#     
+#         Args:
+#             Lnu: Lsol Hz^-1
+#             frequency: Hz
+#     
+#         Returns:
+#             xi_ion: units [erg^-1 Hz]
+#         """
+#     
+#         # filter nan sed values
+#         mask = ~np.isnan(Lnu)
+#         Lnu = Lnu[mask]
+#         frequency = frequency[mask]
+#     
+#         # normalisation luminosity
+#         Lnu_0p15 = Lnu[np.abs((c * 1e6 / frequency) - 0.15).argmin()]
+#     
+#         integ = Lnu / (6.626e-34 * frequency * 1e7) # energy in ergs
+#         integ /= Lnu_0p15  # normalise
+#     
+#         b = c / 912e-10
+#         limits = frequency>b
+#     
+#         return np.trapz(integ[limits][::-1],frequency[limits][::-1])
