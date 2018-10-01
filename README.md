@@ -21,8 +21,4 @@ The data pipeline provides a means of processing a given Stellar Population Synt
 
 ### sph2sed
 
-`demo.ipynb` provides an example usage for the Eagle simulation.
-
-## To Do
-
-- provide example data
+`demo.ipynb` provides an example for the EAGLE simulation.
