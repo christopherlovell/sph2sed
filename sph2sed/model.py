@@ -83,31 +83,6 @@ class sed:
 
 
 
-#     def initialise_grid(self, name, z=0.0):
-#         
-# 
-# 
-#         if self.grid[name]['age'][z][0] > self.grid[name]['age'][z][1]:
-#             print("Age array not sorted ascendingly. Sorting...\n")
-#             
-#             # sort age array ascendingly
-#             self.grid[name]['age'][z] = self.grid[name]['age'][z][::-1]
-#             self.grid[name]['lookback_time'][z] = self.grid[name]['lookback_time'][z][::-1]
-#             
-#             # sort sed array age ascending
-#             self.grid[name]['grid'] = self.grid[name]['grid'][:,::-1,:] 
-# 
-#         if self.grid[name]['metallicity'][0] > self.grid[name]['metallicity'][1]:
-#             print("Metallicity array not sorted ascendingly. Sorting...\n")
-#             
-#             # sort Z array ascendingly
-#             self.grid[name]['metallicity'] = self.grid[name]['metallicity'][::-1] 
-#             
-#             # sort sed array age ascending
-#             self.grid[name]['grid'] = self.grid[name]['grid'][::-1,:,:] 
-
-
-
     def load_grid(self, name='fsps', z0=0.0):
         """
         Load intrinsic spectra grid.
@@ -143,9 +118,6 @@ class sed:
             self.grid['metallicity'] = self.grid['metallicity'][::-1]
             self.grid['grid'] = self.grid['grid'][::-1,:,:]
 
-        
-        # self.initialise_grid(name)
-
 
 
     def redshift_grid(self, z, z0=0.0):
@@ -160,10 +132,8 @@ class sed:
             print("No need to initialise new grid, z = z0")
             return None
         else:
-            
-            # self.grid[z] = self.grid[z0].copy()
-
             observed_lookback_time = self.cosmo.lookback_time(z).value
+            # print("Observed lookback time: %.2f"%observed_lookback_time)
 
             # redshift of age grid values
             age_grid_z = [z_at_value(self.cosmo.scale_factor, a) for a in self.grid['age'][z0]]
@@ -182,9 +152,8 @@ class sed:
             age_grid = self.cosmo.scale_factor(age_grid_z)
 
             self.grid['age'][z] = age_grid
-            self.grid['lookback_time'][z] = age_grid_lookback
+            self.grid['lookback_time'][z] = age_grid_lookback - observed_lookback_time
             self.grid['age_mask'][z] = age_mask
-            # self.initialise_grid(z)
 
 
     def create_lookup_table(self, z, resolution=5000):
@@ -480,15 +449,11 @@ class sed:
 
 
     @staticmethod
-    def zdependent_worker(d, idx, key, temp_dict, A, Z, lookback, grid, wl, lambda_nu, tdisp):
+    def zdependent_worker(d, idx, key, temp_dict, A, Z, lookback, grid, wl, lambda_nu, tdisp, gamma, gamma_cloud):
         """
         Z-dependent dust model
         """
-        # in_arr = np.array([d[idx]['Metallicity'],
-        #                    d[idx]['Age'],
-        #                    d[idx]['InitialMass']])
-
-
+        
         in_arr = np.array([temp_dict['Metallicity'],
                            temp_dict['Age'],
                            temp_dict['InitialMass']])
@@ -503,18 +468,18 @@ class sed:
         normed_wl = wl / lambda_nu
 
         spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
-        T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-0.7)  # da Cunha+08 slope of -1.3
+        T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-gamma_cloud)
         spec_A *= T
 
         spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
-        T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-0.7)
+        T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-gamma)
         spec_B *= T
    
         didx['Dust %s'%key] = spec_A + spec_B 
         d[idx] = didx
 
 
-    def zdependent_parallel(self, key, worker_method=None, resampled=False, z=None, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2):
+    def zdependent_parallel(self, key, worker_method=None, resampled=False, z=None, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2, gamma=0.7, gamma_cloud=0.7):
         """
         parallel highz dust method
         """
@@ -527,11 +492,12 @@ class sed:
             z = self.redshift
 
         ## Dust
-        sf_gas_metallicity = np.array([value['sf_gas_metallicity'] for key, value in self.galaxies.items()])
-        sf_gas_mass = np.array([value['sf_gas_mass'] for key, value in self.galaxies.items()])
-        stellar_mass = np.array([value['stellar_mass'] for key, value in self.galaxies.items()])
+        sf_gas_metallicity = np.array([value['sf_gas_metallicity'] for k, value in self.galaxies.items()])
+        sf_gas_mass = np.array([value['sf_gas_mass'] for k, value in self.galaxies.items()])
+        stellar_mass = np.array([value['stellar_mass'] for k, value in self.galaxies.items()])
+        redshift = np.array([value['redshift'] for k, value in self.galaxies.items()])
 
-        Z_factor = self.metallicity_factor(0.1, sf_gas_metallicity, sf_gas_mass, stellar_mass)
+        Z_factor = self.metallicity_factor(redshift, sf_gas_metallicity, sf_gas_mass, stellar_mass)
 
         # create parallel dict
         manager = mp.Manager()
@@ -555,7 +521,7 @@ class sed:
         wl = self.grid['wavelength']
 
         job = [mp.Process(target=worker_method, 
-                          args=(d, idx, key, temp_dict[idx], A, Z, lookback, grid, wl, lambda_nu, tdisp)) \
+                          args=(d, idx, key, temp_dict[idx], A, Z, lookback, grid, wl, lambda_nu, tdisp, gamma, gamma_cloud)) \
                    for idx in self.galaxies.keys()]
 
         # start jobs and join
@@ -609,10 +575,10 @@ class sed:
         gas_fraction = sf_gas_mass / stellar_mass
         #gas_fraction = self.galaxies[idx]['sf_gas_mass'] / self.galaxies[idx]['stellar_mass']
 
-        metallicity_factor = ((sf_gas_metallicity / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
-        # metallicity_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
+        Z_factor = ((sf_gas_metallicity / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
+        # Z_factor = ((self.galaxies[idx]['sf_gas_metallicity'] / Z_solar) / Z) * (gas_fraction / MW_gas_fraction)
 
-        return metallicity_factor
+        return Z_factor
 
 
 
