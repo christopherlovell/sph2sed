@@ -13,7 +13,7 @@ import sys
 import re
 import pickle as pcl
 
-from astropy.cosmology import WMAP9 as cosmo
+from astropy.cosmology import Planck13 as cosmo
 from astropy.cosmology import z_at_value
 import astropy.units as u
 
@@ -159,16 +159,16 @@ def convert_age_to_scalefactor(sed, ages):
 
 if __name__ == '__main__':
     out = convertBC03(['bc2003_hr_m22_chab_ssp.ised_ASCII', 
-                 'bc2003_hr_m22_chab_ssp.ised_ASCII',
                  'bc2003_hr_m32_chab_ssp.ised_ASCII',  
-                 'bc2003_hr_m72_chab_ssp.ised_ASCII',
                  'bc2003_hr_m42_chab_ssp.ised_ASCII',
                  'bc2003_hr_m52_chab_ssp.ised_ASCII',
-                 'bc2003_hr_m62_chab_ssp.ised_ASCII'])
+                 'bc2003_hr_m62_chab_ssp.ised_ASCII',
+                 'bc2003_hr_m72_chab_ssp.ised_ASCII'])
     # bc2003_hr_m62_chab_ssp_Pickles_Stelib.ised_ASCII
 
     sed = out[0]     # Lsol / AA
-    metals = out[1]  # Z 
+    metals = out[1]  # Z
+    print(metals)
     ages = out[2]    # yr
     wl = out[3]      # ??
 
