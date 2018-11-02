@@ -209,7 +209,9 @@ class sed:
 
             # print('Lookup table out of range. Reloading')
             self.load_lookup_table(self.galaxies[idx]['redshift'])
-            
+        
+        if verbose: print(idx)
+
         lookback_time_z0 = np.float32(self.cosmo.lookback_time(self.galaxies[idx]['redshift']).value)
         lookback_time_z1 = np.float32((self.cosmo.lookback_time(self.galaxies[idx]['redshift']) + self.age_lim * u.Gyr).value)
 
@@ -388,7 +390,7 @@ class sed:
         A = self.grid['age'][z]
         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
 
-        job = [mp.Process(target=worker_method, args=(d, idx, A, Z, grid)) \
+        job = [mp.Process(target=worker_method, args=(d, idx, key, A, Z, grid)) \
                 for idx in self.galaxies.keys()]
 
         # start jobs and join
@@ -425,7 +427,7 @@ class sed:
         # apply to intrinsic spectra
         for i, idx in enumerate(self.galaxies.keys()):
             self.galaxies[idx]['Spectra']['Dust %s'%key] = \
-                    self.galaxies[idx]['Spectra']['Intrinsic'] * T[i]
+                    self.galaxies[idx]['Spectra']['Intrinsic %s'%key] * T[i]
 
 
         self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
