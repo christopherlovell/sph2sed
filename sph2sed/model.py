@@ -144,6 +144,7 @@ class sed:
 
             # truncate age grid by age of universe
             age_mask = age_grid_lookback < self.cosmo.age(0).value
+            age_mask = age_mask & ~(np.isclose(age_grid_lookback, self.cosmo.age(0).value))
             age_grid_lookback = age_grid_lookback[age_mask]
 
             # convert new lookback times to redshift
