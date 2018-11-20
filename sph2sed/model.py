@@ -366,7 +366,7 @@ class sed:
 
 
 
-    def highz_dust_parallel(self, key, worker_method=None, resampled=False, z=None, tau_0=1e-8):
+    def highz_dust_parallel(self, key, worker_method=None, resampled=False, z=None, alpha=1, beta=1, tau_0=1e-8, gamma=-1.0, dust=True):
         """
         parallel highz dust method
         """
@@ -413,28 +413,35 @@ class sed:
                                             'units': 'Lsol / AA',
                                             'scaler': None}
 
-        ## Dust
-        sf_gas_metallicity = np.array([value['sf_gas_metallicity'] \
-                for key, value in self.galaxies.items()])
+        if dust:
+            sf_gas_metallicity = np.array([value['sf_gas_metallicity'] \
+                    for key, value in self.galaxies.items()])
 
-        sf_gas_mass = np.array([value['sf_gas_mass'] \
-                for key, value in self.galaxies.items()])
-
-        tau_V = self.simple_metallicity_factor(sf_gas_metallicity, 
-                                               sf_gas_mass, tau_0=tau_0)
-
-        T = self.dust_transmission(self.grid['wavelength'], tau_V)
-
-        # apply to intrinsic spectra
-        for i, idx in enumerate(self.galaxies.keys()):
-            self.galaxies[idx]['Spectra']['Dust %s'%key] = \
-                    self.galaxies[idx]['Spectra']['Intrinsic %s'%key] * T[i]
+            sf_gas_mass = np.array([value['sf_gas_mass'] \
+                    for key, value in self.galaxies.items()])
 
 
-        self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
-                                'lambda': self.grid['wavelength'],
-                                'units': 'Lsol / AA',
-                                'scaler': None}
+            stellar_mass = np.array([value['stellar_mass'] \
+                    for key, value in self.galaxies.items()])
+
+            # tau_V = self.simple_metallicity_factor(sf_gas_metallicity, 
+            #                                        sf_gas_mass, tau_0=tau_0)
+            
+            tau_V = self.metallicity_factor_update(sf_gas_metallicity, 
+                                                   sf_gas_mass, stellar_mass, alpha=alpha, beta=beta)
+
+            T = self.dust_transmission(self.grid['wavelength'], tau_V, gamma=gamma)
+
+            # apply to intrinsic spectra
+            for i, idx in enumerate(self.galaxies.keys()):
+                self.galaxies[idx]['Spectra']['Dust %s'%key] = \
+                        self.galaxies[idx]['Spectra']['Intrinsic %s'%key] * T[i]
+
+
+            self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
+                                    'lambda': self.grid['wavelength'],
+                                    'units': 'Lsol / AA',
+                                    'scaler': None}
 
 
     @staticmethod
@@ -449,6 +456,13 @@ class sed:
     def simple_metallicity_factor(sf_gas_metallicity, sf_gas_mass, tau_0=1e-8):
         return sf_gas_metallicity * sf_gas_mass * tau_0
 
+
+    @staticmethod
+    def metallicity_factor_update(sf_gas_metallicity, sf_gas_mass, stellar_mass, 
+                                  gas_norm=2, metal_norm=0.0015, 
+                                  alpha=1, beta=1, tau_0=1):
+
+        return tau_0 * (sf_gas_metallicity / metal_norm)**alpha * (sf_gas_mass / stellar_mass / gas_norm)**beta
 
 
     @staticmethod
@@ -484,7 +498,7 @@ class sed:
 
     def zdependent_parallel(self, key, worker_method=None, resampled=False, z=None, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2, gamma=0.7, gamma_cloud=0.7):
         """
-        parallel highz dust method
+        parallel z-dependent dust method
         """
 
         # if no worker_method provided, use the default method provided
