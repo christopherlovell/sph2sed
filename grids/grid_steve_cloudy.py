@@ -2,21 +2,27 @@ import numpy as np
 import os
 import pickle as pcl
 
-from astropy.cosmology import WMAP9 as cosmo
+from astropy.cosmology import Planck13 as cosmo
 from astropy.cosmology import z_at_value
 import astropy.units as u
 
 # Zsol = 0.0127
-package_dir = os.path.dirname(os.path.abspath(__file__))
 
-def pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy', indir='steve_cloudy', outdir='intrinsic/output', lam_correct=1):
+def pickle_grid(fname='BC03-Padova1994_Salpeter_defaultCloudy', indir='steve_cloudy', outdir='intrinsic/output', lam_correct=1, outname=None, cloudy=False):
     
-    dat = pcl.load(open("%s/%s.p"%(indir,name), 'rb'), encoding='latin1')
+    dat = pcl.load(open("%s/%s.p"%(indir,fname), 'rb'), encoding='latin1')
 
     if 'total' in dat.keys():
         Lnu = dat['total']    # Lnu (erg s^-1 Hz^-1)
-    else:
+    elif 'SED' in dat.keys():
         Lnu = dat['SED']
+    elif ('nebular' in dat.keys()) & ('stellar' in dat.keys()):
+        if cloudy:
+            Lnu = dat['stellar'] + dat['nebular']
+        else:
+            Lnu = dat['stellar']
+    elif 'L_nu' in dat.keys():
+        Lnu = dat['L_nu']
     
     
     lam = dat['lam'] * lam_correct  # microns
@@ -26,8 +32,11 @@ def pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy', indir='steve_clou
     if 'ages' in dat.keys():
         ages = (dat['ages'] / 1e3) * u.Gyr  # Gyr
     elif 'log10age' in dat.keys():
-        ## extra factor of 10 due to error in original pickle...
-        ages = (pow(10, pow(10, dat['log10age'])) / 1e9)  * u.Gyr 
+        if dat['log10age'].max() < 1.3:
+            ## extra factor of 10 due to error in original pickle...
+            ages = (pow(10, pow(10, dat['log10age'])) / 1e9)  * u.Gyr 
+        else:
+            ages = (pow(10, dat['log10age']) / 1e9)  * u.Gyr 
     else: raise ValueError('ages key not in dictionary')
 
     if 'metallicities' in dat.keys():
@@ -53,23 +62,24 @@ def pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy', indir='steve_clou
 
     pickle = {'Spectra': L_AA, 'Metallicity': Z, 'Age': scale_factors, 'Wavelength': lam * 1e4}
 
-    pcl.dump(pickle, open('%s/%s.p'%(outdir,name), 'wb'))
+    if outname is None: outname =fname
+    pcl.dump(pickle, open('%s/%s.p'%(outdir,outname), 'wb'))
 
 
 if __name__ == "__main__":
 
-    pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy')
-    pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy')
-    pickle_grid(name='P2_2p351p3_defaultCloudy')
-    pickle_grid(name='BPASSv2-bin_imf135all100_defaultCloudy')
-    pickle_grid(name='P2_2p71p3_defaultCloudy')
-    pickle_grid(name='BPASSv2_imf135all100_defaultCloudy')
-    pickle_grid(name='P2_Chabrier_defaultCloudy')
-    pickle_grid(name='FSPS_Salpeter_defaultCloudy')
-    pickle_grid(name='P2_K01_defaultCloudy')
-    pickle_grid(name='M05-rhb_Salpeter_defaultCloudy')
-    pickle_grid(name='P2_Salpeter_defaultCloudy')
-    pickle_grid(name='P2_2p01p3_defaultCloudy')
+    # pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy')
+    # pickle_grid(name='BC03-Padova1994_Salpeter_defaultCloudy')
+    # pickle_grid(name='P2_2p351p3_defaultCloudy')
+    # pickle_grid(name='BPASSv2-bin_imf135all100_defaultCloudy')
+    # pickle_grid(name='P2_2p71p3_defaultCloudy')
+    # pickle_grid(name='BPASSv2_imf135all100_defaultCloudy')
+    # pickle_grid(name='P2_Chabrier_defaultCloudy')
+    # pickle_grid(name='FSPS_Salpeter_defaultCloudy')
+    # pickle_grid(name='P2_K01_defaultCloudy')
+    # pickle_grid(name='M05-rhb_Salpeter_defaultCloudy')
+    # pickle_grid(name='P2_Salpeter_defaultCloudy')
+    # pickle_grid(name='P2_2p01p3_defaultCloudy')
 
     # pickle_grid(name='BPASSv2_imf135all_100-bin')
     # pickle_grid(name='P2_2p0_1p3_ng')
@@ -84,6 +94,30 @@ if __name__ == "__main__":
     # pickle_grid(name='P2_2p35_1p3_ng')
     # pickle_grid(name='P2_2p7_1p3_ng') 
     
-    # pickle_grid(name='BPASSv2.1.binary_ModSalpeter_300', lam_correct=1e-4) 
+    indir = '/research/astro/highz/SED/0.2/stellar/BuildGrid/SSP/grids/BPASSv2.2.1.binary'
+
+    pickle_grid(fname='stellar', indir=indir+'/1p0_100', outname='BPASSv2.2.1.binary_1p0_100', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/1p0_300', outname='BPASSv2.2.1.binary_1p0_300', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/1p7_100', outname='BPASSv2.2.1.binary_1p7_100', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/1p7_300', outname='BPASSv2.2.1.binary_1p7_300', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/Chabrier_100', outname='BPASSv2.2.1.binary_Chabrier_100', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/Chabrier_300', outname='BPASSv2.2.1.binary_Chabrier_300', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/ModSalpeter_100', outname='BPASSv2.2.1.binary_ModSalpeter_100', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/ModSalpeter_300', outname='BPASSv2.2.1.binary_ModSalpeter_300', cloudy=False, lam_correct=1e-4)
+    pickle_grid(fname='stellar', indir=indir+'/Salpeter_100', outname='BPASSv2.2.1.binary_Salpeter_100', cloudy=False, lam_correct=1e-4)
+    
+    indir = '/research/astro/highz/SED/0.5/nebular/BuildGrid/Z/grids/BPASSv2.2.1.binary'
+
+    # pickle_grid(fname='nebular', indir=indir+'/ModSalpeter_300', outname='BPASSv2.2.1.binary_ModSalpeter_300_cloudy', cloudy=True, lam_correct=1e-4)
+
+    pickle_grid(fname='nebular', indir=indir+'/1p0_100', outname='BPASSv2.2.1.binary_1p0_100_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/1p0_300', outname='BPASSv2.2.1.binary_1p0_300_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/1p7_100', outname='BPASSv2.2.1.binary_1p7_100_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/1p7_300', outname='BPASSv2.2.1.binary_1p7_300_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/Chabrier_100', outname='BPASSv2.2.1.binary_Chabrier_100_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/Chabrier_300', outname='BPASSv2.2.1.binary_Chabrier_300_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/ModSalpeter_100', outname='BPASSv2.2.1.binary_ModSalpeter_100_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/ModSalpeter_300', outname='BPASSv2.2.1.binary_ModSalpeter_300_cloudy', cloudy=True, lam_correct=1e-4)
+    pickle_grid(fname='nebular', indir=indir+'/Salpeter_100', outname='BPASSv2.2.1.binary_Salpeter_100_cloudy', cloudy=True, lam_correct=1e-4)
 
 
