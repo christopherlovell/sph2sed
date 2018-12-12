@@ -4,7 +4,8 @@ import os
 import sys
 import random
 
-from . import weights
+# from . import weights
+import weights
 
 import astropy.units as u
 from astropy.cosmology import Planck15 as cosmo
@@ -315,9 +316,9 @@ class sed:
         
         self._w = weights.calculate_weights(self.grid['metallicity'], 
                                             self.grid['age'][z],
-                                            np.array([metal,age,imass]).T)
+                                            np.array([metal,age,imass], dtype=np.float64).T)
 
-        return self.grid['grid'][:,self.grid['age_mask'][z],:] * self._w
+        return self._w # self.grid['grid'][:,self.grid['age_mask'][z],:]
   
 
 
@@ -417,6 +418,63 @@ class sed:
         self.spectra['Dust %s'%name] = {'grid_name': self.grid['name'],
                                        'lambda': self.grid['wavelength'],
                                        'units': 'Lsol / AA', 'scaler': None}
+
+
+
+    def two_component_dust(self, name, z=None):
+        """
+        Calculate composite intrinsic spectra.
+        """
+        if z is None:
+            z = self.redshift
+
+
+        grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+
+        grid_weights = np.array([weights.calculate_weights(self.grid['metallicity'],
+                            self.grid['age'][z],
+                            np.array([val['StarParticles']['Metallicity'],
+                                      val['StarParticles']['Age'],
+                                      val['StarParticles']['InitialMass']]).T) \
+                                 for key,val in self.galaxies.items()])
+
+
+        spectra = np.einsum('ijk,jkl->il',grid_weights.squeeze(),grid)
+
+        # save to class instance
+        for i,idx in enumerate(self.galaxies.keys()):
+            self.galaxies[idx]['Spectra']['Intrinsic %s'%name] = spectra[i]
+
+
+        self.spectra['Intrinsic %s'%name] = {'grid_name': self.grid['name'],
+                                            'lambda': self.grid['wavelength'],
+                                            'units': 'Lsol / AA',
+                                            'scaler': None}
+
+        # highz worker
+        in_arr = np.array([temp_dict['Metallicity'],
+                           temp_dict['Age'],
+                           temp_dict['InitialMass']])
+
+        didx = d[idx]
+
+        weighted_sed = weights.calculate_weights(Z,A,in_arr.T) * grid
+
+        didx['Intrinsic %s'%key] = np.nansum(weighted_sed, (0,1))
+
+        ## Dust
+        normed_wl = wl / lambda_nu
+
+        spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
+        T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-gamma_cloud)
+        spec_A *= T
+
+        spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
+        T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-gamma)
+        spec_B *= T
+
+        didx['Dust %s'%key] = spec_A + spec_B
+        d[idx] = didx
 
 
 
