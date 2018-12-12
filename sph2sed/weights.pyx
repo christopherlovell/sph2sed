@@ -1,3 +1,10 @@
+# cython: profile=True
+# cython: linetrace=True
+# cython: binding=True
+# cython: boundscheck=False
+# cython: wraparound=False
+# # cython: cdivision=True
+
 """
 Cython extension to calculate SED weights for star particles.
 
@@ -13,27 +20,30 @@ Returns:
   w - 2d array, dimensions (z, a), of weights to apply to SED array
 """
 
-
-from bisect import bisect
-import numpy as np
-cimport numpy as np
-
+# from libcpp cimport bool
+# from bisect import bisect
 cimport cython
+cimport numpy as np
+import numpy as np
+from cython.parallel import prange
 
-ctypedef np.float32_t dtype_t
+# ctypedef np.float32_t dtype_t
 ctypedef np.float64_t dtype_s
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.nonecheck(False)
 def calculate_weights(np.ndarray[dtype_s, ndim=1] z,
  		      np.ndarray[dtype_s, ndim=1] a,
- 		      np.ndarray[dtype_t, ndim=2] particle):
+ 		      np.ndarray[dtype_s, ndim=2] particle):
 
-    cdef int ihigh, ilow
-    cdef dtype_s ifrac, metal, age, mass
+    cdef int ihigh, ilow, lenz, lena
+    cdef dtype_s ifrac, jfrac, metal, age, mass, mfrac
+    # cdef float mfrac
+    
+    lenz = len(z)
+    lena = len(a)
+    
+    cdef np.ndarray[dtype_s,ndim=2] w_init = np.zeros((lenz,lena))#, dtype=np.float32)
+    cdef double[:,:] w = w_init
 
-    cdef np.ndarray[dtype_s, ndim=3] w = np.zeros((len(z),len(a), 1))
 
     # simple test for sorted z and a arrays
     if z[0] > z[1]:
@@ -43,44 +53,53 @@ def calculate_weights(np.ndarray[dtype_s, ndim=1] z,
         raise ValueError('Age array not sorted ascendingly')
         
 
-    for p in particle:
+    for p in range(1, len(particle)):
+        #metal, age, mass = particle[p]
+        metal = particle[p][0]
+        age = particle[p][1]
+        # mass = particle[p][2]
 
-        metal = p[0]
-        age = p[1]
-        mass = p[2]
-
-        ilow = bisect(z,metal)
-        if ilow == 0:  # test if outside array range
+        ilow = z.searchsorted(metal)
+        if ilow.__eq__(0):  # test if outside array range
             ihigh = ilow # set upper index to lower
             ifrac = 0 # set fraction to unity
-        elif ilow == len(z):
+        elif ilow == lenz:
             ilow -= 1 # lower index
             ihigh = ilow # set upper index to lower
             ifrac = 0
         else:
             ihigh = ilow # else set upper limit to bisect lower
             ilow -= 1 # and set lower limit to index below
-            ifrac = (metal-z[(ilow)])/(z[ihigh]-z[ilow])
+            ifrac = (metal - z[ilow]) / (z[ihigh] - z[ilow])
 
-        jlow = bisect(a,age)
+        jlow = a.searchsorted(age)
         if jlow == 0:
             jhigh = jlow
             jfrac = 0
-        elif jlow == len(a):
+        elif jlow == lena:
             jlow -= 1
             jhigh = jlow
             jfrac = 0
         else:
             jhigh = jlow
             jlow -= 1
-            jfrac = (age-a[(jlow)])/(a[jhigh]-a[jlow])
+            jfrac = (age - a[jlow]) / (a[jhigh] - a[jlow])
 
-        w[ilow,jlow] += mass * (1-ifrac) * (1-jfrac)
-        if ilow != ihigh:  # ensure we're not adding weights more than once when outside range
-            w[ihigh,jlow] += mass * ifrac * (1-jfrac)
-        if jlow != jhigh:
-            w[ilow,jhigh] += mass * (1-ifrac) * jfrac
-        if (ilow != ihigh) & (jlow != jhigh):
-            w[ihigh,jhigh] += mass * ifrac * jfrac
 
-    return w
+        mfrac = particle[p][2] * (1.-ifrac)
+        w[ilow,jlow] = w[ilow,jlow] + mfrac * (1.-jfrac)
+
+        # ensure we're not adding weights more than once when outside range
+        if (jlow != jhigh):
+            w[ilow,jhigh] = w[ilow,jhigh] + mfrac * jfrac
+        if (ilow != ihigh):  
+            mfrac = particle[p][2] * ifrac 
+            w[ihigh,jlow] = w[ihigh,jlow] + mfrac * (1.-jfrac)
+            if (jlow != jhigh):
+                w[ihigh,jhigh] = w[ihigh,jhigh] + mfrac * jfrac
+
+
+
+
+    return np.asarray(w)
+
