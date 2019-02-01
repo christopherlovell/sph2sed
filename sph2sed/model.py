@@ -13,7 +13,9 @@ from astropy.cosmology import z_at_value
 
 import pyphot
 
-import multiprocessing as mp
+import multiprocessing
+from joblib import Parallel, delayed
+
 
 c = 2.9979e18  # AA s^-1
 
@@ -23,7 +25,6 @@ class sed:
     """
 
     def __init__(self, details=''):
-
         self.package_directory = os.path.dirname(os.path.abspath(__file__))          # location of package
         self.grid_directory = os.path.split(self.package_directory)[0]+'/grids'      # location of SPS grids
         self.filter_directory = os.path.split(self.package_directory)[0]+'/filters'  # location of filters
@@ -31,6 +32,15 @@ class sed:
         self.spectra = {}      # spectra info dictionary
         self.cosmo = cosmo     # astropy cosmology
         self.age_lim = 0.1     # Young star age limit, used for resampling recent SF, Gyr
+        
+        # create temp grid directory
+        path = "%s/temp"%self.package_directory
+        if not os.path.isdir(path):
+            try:
+                os.mkdir(path)
+            except OSError:  
+                print ("Creation of the /temp directory failed")
+
         self.details = details
 
 
@@ -84,7 +94,7 @@ class sed:
 
 
 
-    def load_grid(self, name='fsps', z0=0.0):
+    def load_grid(self, name='fsps', z0=0.0, verbose=False):
         """
         Load intrinsic spectra grid.
 
@@ -94,7 +104,7 @@ class sed:
          
         file_dir = '%s/intrinsic/output/%s.p'%(self.grid_directory,name)
 
-        print("Loading %s model from: \n\n%s\n"%(name, file_dir))
+        if verbose: print("Loading %s model from: \n\n%s\n"%(name, file_dir))
         temp = pcl.load(open(file_dir, 'rb'))
 
         self.grid = {'name': name, 'grid': None, 'age': None, 'metallicity':None}
@@ -107,7 +117,7 @@ class sed:
 
         ## Sort grids
         if self.grid['age'][z0][0] > self.grid['age'][z0][1]:
-             print("Age array not sorted ascendingly. Sorting...\n")
+             if verbose: print("Age array not sorted ascendingly. Sorting...\n")
              self.grid['age'][z0] = self.grid['age'][z0][::-1]
              self.grid['age_mask'][z0] = self.grid['age_mask'][z0][::-1]
              self.grid['lookback_time'][z0] = self.grid['lookback_time'][z0][::-1]
@@ -277,78 +287,78 @@ class sed:
 
 
 
-    def _calculate_weights(self, idx, resampled=False):
-        """
-        Calculate weights matrix from stellar particles.
-
-        Args:
-            idx (int) galaxy index
-            resampled (bool) whether to use resampled star particles
-        """
-
-
-        if resampled & ('Resampled' in self.galaxies[idx]['StarParticles']):
-            metal = self.galaxies[idx]['StarParticles']['Metallicity'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
-            metal = np.hstack([metal, self.galaxies[idx]['StarParticles']['Resampled']['Metallicity']])
-
-            age = self.galaxies[idx]['StarParticles']['Age'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
-            age = np.hstack([age, self.galaxies[idx]['StarParticles']['Resampled']['Age']])
-            
-            imass = self.galaxies[idx]['StarParticles']['InitialMass'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
-            imass = np.hstack([imass, self.galaxies[idx]['StarParticles']['Resampled']['InitialMass']])
-        else:
-            metal = self.galaxies[idx]['StarParticles']['Metallicity']
-            age = self.galaxies[idx]['StarParticles']['Age']
-            imass = self.galaxies[idx]['StarParticles']['InitialMass'] 
-
-
-        # Load grid appropriate for redshift
-        if 'redshift' in self.galaxies[idx]:
-            z = self.galaxies[idx]['redshift']
-
-            if z not in self.grid['age'].keys():
-
-                print('Generating new grid')
-                self.redshift_grid(z)
-        else: 
-            z = 0.0
-
-        
-        self._w = weights.calculate_weights(self.grid['metallicity'], 
-                                            self.grid['age'][z],
-                                            np.array([metal,age,imass], dtype=np.float64).T)
-
-        return self._w # self.grid['grid'][:,self.grid['age_mask'][z],:]
+#     def _calculate_weights(self, idx, resampled=False):
+#         """
+#         Calculate weights matrix from stellar particles.
+# 
+#         Args:
+#             idx (int) galaxy index
+#             resampled (bool) whether to use resampled star particles
+#         """
+# 
+# 
+#         if resampled & ('Resampled' in self.galaxies[idx]['StarParticles']):
+#             metal = self.galaxies[idx]['StarParticles']['Metallicity'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+#             metal = np.hstack([metal, self.galaxies[idx]['StarParticles']['Resampled']['Metallicity']])
+# 
+#             age = self.galaxies[idx]['StarParticles']['Age'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+#             age = np.hstack([age, self.galaxies[idx]['StarParticles']['Resampled']['Age']])
+#             
+#             imass = self.galaxies[idx]['StarParticles']['InitialMass'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+#             imass = np.hstack([imass, self.galaxies[idx]['StarParticles']['Resampled']['InitialMass']])
+#         else:
+#             metal = self.galaxies[idx]['StarParticles']['Metallicity']
+#             age = self.galaxies[idx]['StarParticles']['Age']
+#             imass = self.galaxies[idx]['StarParticles']['InitialMass'] 
+# 
+# 
+#         # Load grid appropriate for redshift
+#         if 'redshift' in self.galaxies[idx]:
+#             z = self.galaxies[idx]['redshift']
+# 
+#             if z not in self.grid['age'].keys():
+# 
+#                 print('Generating new grid')
+#                 self.redshift_grid(z)
+#         else: 
+#             z = 0.0
+# 
+#         
+#         self._w = weights.calculate_weights(self.grid['metallicity'], 
+#                                             self.grid['age'][z],
+#                                             np.array([metal,age,imass], dtype=np.float64).T)
+# 
+#         return self._w # self.grid['grid'][:,self.grid['age_mask'][z],:]
   
 
 
-    def particle_dict(self, idx, resampled=False):
-        """
-        Create dict of particles
-
-        Args:
-            idx (int) galaxy index
-            resampled (bool) whether to use resampled particle info
-
-        Returns:
-            (dict) particle data on age, metallicity and initial mass
-        """
-
-        if resampled & ('Resampled' in self.galaxies[idx]['StarParticles']):
-            metal = self.galaxies[idx]['StarParticles']['Metallicity'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
-            metal = np.hstack([metal, self.galaxies[idx]['StarParticles']['Resampled']['Metallicity']])
-
-            age = self.galaxies[idx]['StarParticles']['Age'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
-            age = np.hstack([age, self.galaxies[idx]['StarParticles']['Resampled']['Age']])
-
-            imass = self.galaxies[idx]['StarParticles']['InitialMass'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
-            imass = np.hstack([imass, self.galaxies[idx]['StarParticles']['Resampled']['InitialMass']])
-        else:
-            metal = self.galaxies[idx]['StarParticles']['Metallicity']
-            age = self.galaxies[idx]['StarParticles']['Age']
-            imass = self.galaxies[idx]['StarParticles']['InitialMass']
-
-        return {'Metallicity': metal, 'Age': age, 'InitialMass': imass}
+#     def particle_dict(self, idx, resampled=False):
+#         """
+#         Create dict of particles
+# 
+#         Args:
+#             idx (int) galaxy index
+#             resampled (bool) whether to use resampled particle info
+# 
+#         Returns:
+#             (dict) particle data on age, metallicity and initial mass
+#         """
+# 
+#         if resampled & ('Resampled' in self.galaxies[idx]['StarParticles']):
+#             metal = self.galaxies[idx]['StarParticles']['Metallicity'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+#             metal = np.hstack([metal, self.galaxies[idx]['StarParticles']['Resampled']['Metallicity']])
+# 
+#             age = self.galaxies[idx]['StarParticles']['Age'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+#             age = np.hstack([age, self.galaxies[idx]['StarParticles']['Resampled']['Age']])
+# 
+#             imass = self.galaxies[idx]['StarParticles']['InitialMass'][~self.galaxies[idx]['StarParticles']['Resampled']['mask']]
+#             imass = np.hstack([imass, self.galaxies[idx]['StarParticles']['Resampled']['InitialMass']])
+#         else:
+#             metal = self.galaxies[idx]['StarParticles']['Metallicity']
+#             age = self.galaxies[idx]['StarParticles']['Age']
+#             imass = self.galaxies[idx]['StarParticles']['InitialMass']
+# 
+#         return {'Metallicity': metal, 'Age': age, 'InitialMass': imass}
 
     
 
@@ -365,35 +375,166 @@ class sed:
 #         didx['Intrinsic %s'%key] = np.nansum(weights.calculate_weights(Z,A,in_arr.T) * grid, (0,1))
 #         d[idx] = didx
 
-    def intrinsic_spectra(self, name, z=None):
-        """
-        Calculate composite intrinsic spectra.
-        """
+
+    def calculate_weights(self, z=None, resampled=False, num_cores=None, verbose=False):
+
         if z is None:
             z = self.redshift
 
 
+        if num_cores is None:
+            print("Core number not set, using max available.")
+            num_cores = multiprocessing.cpu_count()
+
+        print("Number of cores:",num_cores)
+
+
+        Z = self.grid['metallicity']
+        A = self.grid['age'][z]
+
+        if verbose: print("Calculating weights...")
+        if ~resampled:
+            w_grid = Parallel(n_jobs=num_cores)(delayed(weights.calculate_weights)(Z, A,
+                np.array([self.galaxies[i]['StarParticles']['Metallicity'],
+                          self.galaxies[i]['StarParticles']['Age'],
+                          self.galaxies[i]['StarParticles']['InitialMass']], dtype=np.float64).T) \
+                                  for i in list(self.galaxies.keys()))
+        else:
+            w_grid = Parallel(n_jobs=num_cores)(delayed(weights.calculate_weights)(Z, A, np.array([
+np.hstack([self.galaxies[i]['StarParticles']['Metallicity'][~self.galaxies[i]['StarParticles']['Resampled']['mask']],self.galaxies[i]['StarParticles']['Resampled']['Metallicity']]),
+np.hstack([self.galaxies[i]['StarParticles']['Age'][~self.galaxies[i]['StarParticles']['Resampled']['mask']],self.galaxies[i]['StarParticles']['Resampled']['Age']]),
+np.hstack([self.galaxies[i]['StarParticles']['InitialMass'][~self.galaxies[i]['StarParticles']['Resampled']['mask']],self.galaxies[i]['StarParticles']['Resampled']['InitialMass']])], dtype=np.float64).T) \
+                              for i in list(self.galaxies.keys()))
+
+
+        return np.array(w_grid)
+
+
+    def calculate_weights_serial(self,z=None):
+
+        if z is None:
+            z = self.redshift
+
+        
+        in_arr = [0] * len(self.galaxies.keys())
+
+        for i,key in enumerate(list(self.galaxies.keys())):
+            if 'Resampled' in self.galaxies[key]['StarParticles']:
+                in_arr[i] = np.array([
+                np.hstack([self.galaxies[key]['StarParticles']['Metallicity'][~self.galaxies[key]['StarParticles']['Resampled']['mask']],self.galaxies[key]['StarParticles']['Resampled']['Metallicity']]),
+                np.hstack([self.galaxies[key]['StarParticles']['Age'][~self.galaxies[key]['StarParticles']['Resampled']['mask']],self.galaxies[key]['StarParticles']['Resampled']['Age']]),
+                np.hstack([self.galaxies[key]['StarParticles']['InitialMass'][~self.galaxies[key]['StarParticles']['Resampled']['mask']],self.galaxies[key]['StarParticles']['Resampled']['InitialMass']])], dtype=np.float64).T
+            else:
+                in_arr[i] = np.array([self.galaxies[key]['StarParticles']['Metallicity'],
+                                      self.galaxies[key]['StarParticles']['Age'],
+                                      self.galaxies[key]['StarParticles']['InitialMass']], dtype=np.float64).T
+        
+        
+        Z = self.grid['metallicity']
+        A = self.grid['age'][z]
+        
+        weights_temp = np.array([weights.calculate_weights(Z, A, in_arr[i]) \
+                      for i,key in enumerate(list(self.galaxies.keys()))])
+
+
+        return weights_temp
+
+
+    
+    def intrinsic_spectra(self, name, z=None, resampled=False, weights_arr=None, parallel=False):
+        
+        if z is None:
+            z = self.redshift
+        
+        if weights_arr is None:
+            if parallel:
+                weights_arr = self.calculate_weights(z=z, resampled=resampled)
+            else:
+                weights_arr = self.calculate_weights_serial(z=z)
+
+        
         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
 
-        grid_weights = np.array([weights.calculate_weights(self.grid['metallicity'],
-                            self.grid['age'][z],
-                            np.array([val['StarParticles']['Metallicity'],
-                                      val['StarParticles']['Age'],
-                                      val['StarParticles']['InitialMass']]).T) \
-                                 for key,val in self.galaxies.items()])
-
-
-        spectra = np.einsum('ijk,jkl->il',grid_weights.squeeze(),grid)
-
-        # save to class instance
-        for i,idx in enumerate(self.galaxies.keys()):
-            self.galaxies[idx]['Spectra']['Intrinsic %s'%name] = spectra[i]
-
+        intrinsic_spectra = np.einsum('ijk,jkl->il',weights_arr,grid,optimize=True)
 
         self.spectra['Intrinsic %s'%name] = {'grid_name': self.grid['name'],
-                                            'lambda': self.grid['wavelength'],
-                                            'units': 'Lsol / AA',
-                                            'scaler': None}
+                                             'lambda': self.grid['wavelength'],
+                                             'units': 'Lsol / AA',
+                                             'scaler': None}
+
+        return intrinsic_spectra, weights_arr
+
+        
+    def two_component_dust(self, name, z=None, weights=None, resampled=False, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2, gamma=0.7, gamma_cloud=0.7):
+
+        if z is None:
+            z = self.redshift
+        
+        if weights is None:
+            weights = self.calculate_weights(z=z, resampled=resampled)
+        
+        
+        grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+        normed_wl = self.grid['wavelength'] / lambda_nu
+        lookback = self.grid['lookback_time'][z]
+
+        spec_A = np.einsum('ijk,jkl->il',
+                           weights[:,:,lookback < tdisp],
+                           grid[:,lookback < tdisp,:],
+                           optimize=True)
+
+        T = np.exp(-1 * (tau_ism + tau_cloud) * normed_wl**-gamma)
+        spec_A *= T
+
+        spec_B = np.einsum('ijk,jkl->il',
+                           weights[:,:,lookback >= tdisp],
+                           grid[:,lookback >= tdisp,:],
+                           optimize=True)
+
+        T = np.exp(-1 * tau_ism * normed_wl**-gamma_cloud)
+        spec_B *= T
+
+        dust_spectra = spec_A + spec_B
+
+        self.spectra['Dust %s'%name] = {'grid_name': self.grid['name'],
+                                        'lambda': self.grid['wavelength'],
+                                        'units': 'Lsol / AA', 'scaler': None}
+
+        return dust_spectra, weights
+
+
+
+
+
+#     def intrinsic_spectra(self, name, z=None):
+#         """
+#         Calculate composite intrinsic spectra.
+#         """
+#         if z is None:
+#             z = self.redshift
+# 
+# 
+#         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+# 
+#         grid_weights = np.array([weights.calculate_weights(self.grid['metallicity'],
+#                             self.grid['age'][z],
+#                             np.array([val['StarParticles']['Metallicity'],
+#                                       val['StarParticles']['Age'],
+#                                       val['StarParticles']['InitialMass']]).T) \
+#                                  for key,val in self.galaxies.items()])
+# 
+# 
+#         spectra = np.einsum('ijk,jkl->il',grid_weights.squeeze(),grid)
+# 
+#         # save to class instance
+#         for i,idx in enumerate(self.galaxies.keys()):
+#             self.galaxies[idx]['Spectra']['Intrinsic %s'%name] = spectra[i]
+# 
+# 
+#         self.spectra['Intrinsic %s'%name] = {'grid_name': self.grid['name'],
+#                                             'lambda': self.grid['wavelength'],
+#                                             'units': 'Lsol / AA',
+#                                             'scaler': None}
         
 
     def apply_simple_dust(self, name, t0=4e-15, rmin=5e-4):
@@ -410,169 +551,170 @@ class sed:
 
         tau_V = sf_gas_metallicity * sf_gas_mass * t0 / hmr**2
         T = self.dust_transmission(self.grid['wavelength'], tau_V, gamma=-1.0)
-        
+
         for i, idx in enumerate(self.galaxies.keys()):
             self.galaxies[idx]['Spectra']['Dust %s'%name] = \
                     self.galaxies[idx]['Spectra']['Intrinsic %s'%name] * T[i]
+                    
         
         self.spectra['Dust %s'%name] = {'grid_name': self.grid['name'],
                                        'lambda': self.grid['wavelength'],
                                        'units': 'Lsol / AA', 'scaler': None}
 
+        return None
+
+#     def two_component_dust(self, name, z=None):
+#         """
+#         Calculate composite intrinsic spectra.
+#         """
+#         if z is None:
+#             z = self.redshift
+# 
+# 
+#         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+# 
+#         grid_weights = np.array([weights.calculate_weights(self.grid['metallicity'],
+#                             self.grid['age'][z],
+#                             np.array([val['StarParticles']['Metallicity'],
+#                                       val['StarParticles']['Age'],
+#                                       val['StarParticles']['InitialMass']]).T) \
+#                                  for key,val in self.galaxies.items()])
+# 
+# 
+#         spectra = np.einsum('ijk,jkl->il',grid_weights.squeeze(),grid)
+# 
+#         # save to class instance
+#         for i,idx in enumerate(self.galaxies.keys()):
+#             self.galaxies[idx]['Spectra']['Intrinsic %s'%name] = spectra[i]
+# 
+# 
+#         self.spectra['Intrinsic %s'%name] = {'grid_name': self.grid['name'],
+#                                             'lambda': self.grid['wavelength'],
+#                                             'units': 'Lsol / AA',
+#                                             'scaler': None}
+# 
+#         # highz worker
+#         in_arr = np.array([temp_dict['Metallicity'],
+#                            temp_dict['Age'],
+#                            temp_dict['InitialMass']])
+# 
+#         didx = d[idx]
+# 
+#         weighted_sed = weights.calculate_weights(Z,A,in_arr.T) * grid
+# 
+#         didx['Intrinsic %s'%key] = np.nansum(weighted_sed, (0,1))
+# 
+#         ## Dust
+#         normed_wl = wl / lambda_nu
+# 
+#         spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
+#         T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-gamma_cloud)
+#         spec_A *= T
+# 
+#         spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
+#         T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-gamma)
+#         spec_B *= T
+# 
+#         didx['Dust %s'%key] = spec_A + spec_B
+#         d[idx] = didx
 
 
-    def two_component_dust(self, name, z=None):
-        """
-        Calculate composite intrinsic spectra.
-        """
-        if z is None:
-            z = self.redshift
 
-
-        grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
-
-        grid_weights = np.array([weights.calculate_weights(self.grid['metallicity'],
-                            self.grid['age'][z],
-                            np.array([val['StarParticles']['Metallicity'],
-                                      val['StarParticles']['Age'],
-                                      val['StarParticles']['InitialMass']]).T) \
-                                 for key,val in self.galaxies.items()])
-
-
-        spectra = np.einsum('ijk,jkl->il',grid_weights.squeeze(),grid)
-
-        # save to class instance
-        for i,idx in enumerate(self.galaxies.keys()):
-            self.galaxies[idx]['Spectra']['Intrinsic %s'%name] = spectra[i]
-
-
-        self.spectra['Intrinsic %s'%name] = {'grid_name': self.grid['name'],
-                                            'lambda': self.grid['wavelength'],
-                                            'units': 'Lsol / AA',
-                                            'scaler': None}
-
-        # highz worker
-        in_arr = np.array([temp_dict['Metallicity'],
-                           temp_dict['Age'],
-                           temp_dict['InitialMass']])
-
-        didx = d[idx]
-
-        weighted_sed = weights.calculate_weights(Z,A,in_arr.T) * grid
-
-        didx['Intrinsic %s'%key] = np.nansum(weighted_sed, (0,1))
-
-        ## Dust
-        normed_wl = wl / lambda_nu
-
-        spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
-        T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-gamma_cloud)
-        spec_A *= T
-
-        spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
-        T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-gamma)
-        spec_B *= T
-
-        didx['Dust %s'%key] = spec_A + spec_B
-        d[idx] = didx
-
-
-
-    @staticmethod
-    def highz_worker(age,metal,imass,A,Z,grid):
-        in_arr = np.array([metal,age,imass])
-        return np.nansum(weights.calculate_weights(Z,A,in_arr.T) * grid, (0,1))
-
-
-    def highz_dust_parallel(self, key, worker_method=None, resampled=False, z=None, alpha=1, beta=1, tau_0=1e-8, gamma=-1.0, dust=True):
-        """
-        parallel highz dust method
-        """
-
-        # if no worker_method provided, use the default method provided
-        if worker_method is None:
-            worker_method = self.highz_worker
-
-        if z is None:
-            z = self.redshift
-
-        # create parallel dict
-        # manager = mp.Manager()
-        # d = manager.dict()
-
-        pool = mp.Pool()
-        print("Pool initialised.\nNumber of threads: ",pool._processes)
-
-        # save particle data to parallel dict
-        # for idx in self.galaxies.keys():
-        #     d[idx] = self.particle_dict(idx=idx, resampled=resampled)
-
-        Z = self.grid['metallicity']
-        A = self.grid['age'][z]
-        grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
-
-        pool_input = [(value['StarParticles']['Age'],
-                       value['StarParticles']['Metallicity'],
-                       value['StarParticles']['InitialMass'],A,Z,grid)\
-                               for key,value in self.galaxies.items()]
-
-        spectra = pool.starmap(worker_method, pool_input)
-
-        pool.close()
-        pool.join()
-
-        # job = [mp.Process(target=worker_method, args=(d, idx, key, A, Z, grid)) \
-        #         for idx in self.galaxies.keys()]
-
-        # # start jobs and join
-        # _ = [p.start() for p in job]
-        # _ = [p.join() for p in job]
-
-        # # convert dict_proxy to dict
-        # d_perm = d._getvalue()
-
-        # save to class instance
-        for i,idx in enumerate(self.galaxies.keys()):
-            # for k in d_perm[idx].keys():
-            #     if k not in ['Metallicity','Age','InitialMass']:
-            self.galaxies[idx]['Spectra']['Intrinsic %s'%key] = spectra[i]
-            # d_perm[idx][k]
-
-
-        self.spectra['Intrinsic %s'%key] = {'grid_name': self.grid['name'],
-                                            'lambda': self.grid['wavelength'],
-                                            'units': 'Lsol / AA',
-                                            'scaler': None}
-
-        if dust:
-            sf_gas_metallicity = np.array([value['sf_gas_metallicity'] \
-                    for key, value in self.galaxies.items()])
-
-            sf_gas_mass = np.array([value['sf_gas_mass'] \
-                    for key, value in self.galaxies.items()])
-
-
-            stellar_mass = np.array([value['stellar_mass'] \
-                    for key, value in self.galaxies.items()])
-
-            # tau_V = self.simple_metallicity_factor(sf_gas_metallicity, 
-            #                                        sf_gas_mass, tau_0=tau_0)
-            
-            tau_V = self.metallicity_factor_update(sf_gas_metallicity, 
-                                                   sf_gas_mass, stellar_mass, alpha=alpha, beta=beta)
-
-            T = self.dust_transmission(self.grid['wavelength'], tau_V, gamma=gamma)
-
-            # apply to intrinsic spectra
-            for i, idx in enumerate(self.galaxies.keys()):
-                self.galaxies[idx]['Spectra']['Dust %s'%key] = \
-                        self.galaxies[idx]['Spectra']['Intrinsic %s'%key] * T[i]
-
-
-            self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
-                                    'lambda': self.grid['wavelength'],
-                                    'units': 'Lsol / AA',
-                                    'scaler': None}
+#     @staticmethod
+#     def highz_worker(age,metal,imass,A,Z,grid):
+#         in_arr = np.array([metal,age,imass])
+#         return np.nansum(weights.calculate_weights(Z,A,in_arr.T) * grid, (0,1))
+# 
+# 
+#     def highz_dust_parallel(self, key, worker_method=None, resampled=False, z=None, alpha=1, beta=1, tau_0=1e-8, gamma=-1.0, dust=True):
+#         """
+#         parallel highz dust method
+#         """
+# 
+#         # if no worker_method provided, use the default method provided
+#         if worker_method is None:
+#             worker_method = self.highz_worker
+# 
+#         if z is None:
+#             z = self.redshift
+# 
+#         # create parallel dict
+#         # manager = mp.Manager()
+#         # d = manager.dict()
+# 
+#         pool = mp.Pool()
+#         print("Pool initialised.\nNumber of threads: ",pool._processes)
+# 
+#         # save particle data to parallel dict
+#         # for idx in self.galaxies.keys():
+#         #     d[idx] = self.particle_dict(idx=idx, resampled=resampled)
+# 
+#         Z = self.grid['metallicity']
+#         A = self.grid['age'][z]
+#         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+# 
+#         pool_input = [(value['StarParticles']['Age'],
+#                        value['StarParticles']['Metallicity'],
+#                        value['StarParticles']['InitialMass'],A,Z,grid)\
+#                                for key,value in self.galaxies.items()]
+# 
+#         spectra = pool.starmap(worker_method, pool_input)
+# 
+#         pool.close()
+#         pool.join()
+# 
+#         # job = [mp.Process(target=worker_method, args=(d, idx, key, A, Z, grid)) \
+#         #         for idx in self.galaxies.keys()]
+# 
+#         # # start jobs and join
+#         # _ = [p.start() for p in job]
+#         # _ = [p.join() for p in job]
+# 
+#         # # convert dict_proxy to dict
+#         # d_perm = d._getvalue()
+# 
+#         # save to class instance
+#         for i,idx in enumerate(self.galaxies.keys()):
+#             # for k in d_perm[idx].keys():
+#             #     if k not in ['Metallicity','Age','InitialMass']:
+#             self.galaxies[idx]['Spectra']['Intrinsic %s'%key] = spectra[i]
+#             # d_perm[idx][k]
+# 
+# 
+#         self.spectra['Intrinsic %s'%key] = {'grid_name': self.grid['name'],
+#                                             'lambda': self.grid['wavelength'],
+#                                             'units': 'Lsol / AA',
+#                                             'scaler': None}
+# 
+#         if dust:
+#             sf_gas_metallicity = np.array([value['sf_gas_metallicity'] \
+#                     for key, value in self.galaxies.items()])
+# 
+#             sf_gas_mass = np.array([value['sf_gas_mass'] \
+#                     for key, value in self.galaxies.items()])
+# 
+# 
+#             stellar_mass = np.array([value['stellar_mass'] \
+#                     for key, value in self.galaxies.items()])
+# 
+#             # tau_V = self.simple_metallicity_factor(sf_gas_metallicity, 
+#             #                                        sf_gas_mass, tau_0=tau_0)
+#             
+#             tau_V = self.metallicity_factor_update(sf_gas_metallicity, 
+#                                                    sf_gas_mass, stellar_mass, alpha=alpha, beta=beta)
+# 
+#             T = self.dust_transmission(self.grid['wavelength'], tau_V, gamma=gamma)
+# 
+#             # apply to intrinsic spectra
+#             for i, idx in enumerate(self.galaxies.keys()):
+#                 self.galaxies[idx]['Spectra']['Dust %s'%key] = \
+#                         self.galaxies[idx]['Spectra']['Intrinsic %s'%key] * T[i]
+# 
+# 
+#             self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
+#                                     'lambda': self.grid['wavelength'],
+#                                     'units': 'Lsol / AA',
+#                                     'scaler': None}
 
 
     @staticmethod
@@ -593,108 +735,108 @@ class sed:
                                   gas_norm=2, metal_norm=0.0015, 
                                   alpha=1, beta=1, tau_0=1):
 
-        return tau_0 * (sf_gas_metallicity / metal_norm)**alpha * (sf_gas_mass / stellar_mass / gas_norm)**beta
+        return tau_0 * (sf_gas_metallicity / metal_norm)**alpha * ((sf_gas_mass / stellar_mass) / gas_norm)**beta
 
 
-    @staticmethod
-    def zdependent_worker(d, idx, key, temp_dict, A, Z, lookback, grid, wl, lambda_nu, tdisp, gamma, gamma_cloud):
-        """
-        Z-dependent dust model
-        """
-        
-        in_arr = np.array([temp_dict['Metallicity'],
-                           temp_dict['Age'],
-                           temp_dict['InitialMass']])
-
-        didx = d[idx]
-
-        weighted_sed = weights.calculate_weights(Z,A,in_arr.T) * grid
-
-        didx['Intrinsic %s'%key] = np.nansum(weighted_sed, (0,1))
-       
-        ## Dust
-        normed_wl = wl / lambda_nu
-
-        spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
-        T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-gamma_cloud)
-        spec_A *= T
-
-        spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
-        T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-gamma)
-        spec_B *= T
-   
-        didx['Dust %s'%key] = spec_A + spec_B 
-        d[idx] = didx
-
-
-    def zdependent_parallel(self, key, worker_method=None, resampled=False, z=None, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2, gamma=0.7, gamma_cloud=0.7):
-        """
-        parallel z-dependent dust method
-        """
-
-        # if no worker_method provided, use the default method provided
-        if worker_method is None:
-            worker_method = self.zdependent_worker
-
-        if z is None:
-            z = self.redshift
-
-        ## Dust
-        sf_gas_metallicity = np.array([value['sf_gas_metallicity'] for k, value in self.galaxies.items()])
-        sf_gas_mass = np.array([value['sf_gas_mass'] for k, value in self.galaxies.items()])
-        stellar_mass = np.array([value['stellar_mass'] for k, value in self.galaxies.items()])
-        redshift = np.array([value['redshift'] for k, value in self.galaxies.items()])
-
-        Z_factor = self.metallicity_factor(redshift, sf_gas_metallicity, sf_gas_mass, stellar_mass)
-
-        # create parallel dict
-        manager = mp.Manager()
-        d = manager.dict()
-
-        # save particle data to parallel dict
-        temp_dict = {}
-        for i,idx in enumerate(self.galaxies.keys()):
-            temp = self.particle_dict(idx=idx, resampled=resampled)
-            temp['tau_ism'] = Z_factor[i] * tau_ism
-            temp['tau_cloud'] = Z_factor[i] * tau_cloud
-            temp_dict[idx] = temp
-
-            d[idx] = {}
-
-
-        Z = self.grid['metallicity']
-        A = self.grid['age'][z]
-        lookback = self.grid['lookback_time'][z]
-        grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
-        wl = self.grid['wavelength']
-
-        job = [mp.Process(target=worker_method, 
-                          args=(d, idx, key, temp_dict[idx], A, Z, lookback, grid, wl, lambda_nu, tdisp, gamma, gamma_cloud)) \
-                   for idx in self.galaxies.keys()]
-
-        # start jobs and join
-        _ = [p.start() for p in job]
-        _ = [p.join() for p in job]
-
-        # convert dict_proxy to dict
-        d_perm = d._getvalue()
-
-        # save to class instance
-        for idx in self.galaxies.keys():
-            for k in d_perm[idx].keys():
-                if k not in ['Metallicity','Age','InitialMass','tau_ism','tau_cloud']:
-                    self.galaxies[idx]['Spectra'][k] = d_perm[idx][k]
-
-
-        self.spectra['Intrinsic %s'%key] = {'grid_name': self.grid['name'],
-                                            'lambda': self.grid['wavelength'],
-                                            'units': 'Lsol / AA',
-                                            'scaler': None}
-
-        self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
-                                       'lambda': self.grid['wavelength'],
-                                       'units': 'Lsol / AA',
-                                'scaler': None}
+#     @staticmethod
+#     def zdependent_worker(d, idx, key, temp_dict, A, Z, lookback, grid, wl, lambda_nu, tdisp, gamma, gamma_cloud):
+#         """
+#         Z-dependent dust model
+#         """
+#         
+#         in_arr = np.array([temp_dict['Metallicity'],
+#                            temp_dict['Age'],
+#                            temp_dict['InitialMass']])
+# 
+#         didx = d[idx]
+# 
+#         weighted_sed = weights.calculate_weights(Z,A,in_arr.T) * grid
+# 
+#         didx['Intrinsic %s'%key] = np.nansum(weighted_sed, (0,1))
+#        
+#         ## Dust
+#         normed_wl = wl / lambda_nu
+# 
+#         spec_A = np.nansum(weighted_sed[:,lookback < tdisp,:], (0,1))
+#         T = np.exp(-1 * (temp_dict['tau_ism'] + temp_dict['tau_cloud']) * normed_wl**-gamma_cloud)
+#         spec_A *= T
+# 
+#         spec_B = np.nansum(weighted_sed[:,lookback >= tdisp,:], (0,1))
+#         T = np.exp(-1 * temp_dict['tau_ism'] * normed_wl**-gamma)
+#         spec_B *= T
+#    
+#         didx['Dust %s'%key] = spec_A + spec_B 
+#         d[idx] = didx
+# 
+# 
+#     def zdependent_parallel(self, key, worker_method=None, resampled=False, z=None, lambda_nu=5500, tau_ism=0.33, tau_cloud=0.67, tdisp=1e-2, gamma=0.7, gamma_cloud=0.7):
+#         """
+#         parallel z-dependent dust method
+#         """
+# 
+#         # if no worker_method provided, use the default method provided
+#         if worker_method is None:
+#             worker_method = self.zdependent_worker
+# 
+#         if z is None:
+#             z = self.redshift
+# 
+#         ## Dust
+#         sf_gas_metallicity = np.array([value['sf_gas_metallicity'] for k, value in self.galaxies.items()])
+#         sf_gas_mass = np.array([value['sf_gas_mass'] for k, value in self.galaxies.items()])
+#         stellar_mass = np.array([value['stellar_mass'] for k, value in self.galaxies.items()])
+#         redshift = np.array([value['redshift'] for k, value in self.galaxies.items()])
+# 
+#         Z_factor = self.metallicity_factor(redshift, sf_gas_metallicity, sf_gas_mass, stellar_mass)
+# 
+#         # create parallel dict
+#         manager = mp.Manager()
+#         d = manager.dict()
+# 
+#         # save particle data to parallel dict
+#         temp_dict = {}
+#         for i,idx in enumerate(self.galaxies.keys()):
+#             temp = self.particle_dict(idx=idx, resampled=resampled)
+#             temp['tau_ism'] = Z_factor[i] * tau_ism
+#             temp['tau_cloud'] = Z_factor[i] * tau_cloud
+#             temp_dict[idx] = temp
+# 
+#             d[idx] = {}
+# 
+# 
+#         Z = self.grid['metallicity']
+#         A = self.grid['age'][z]
+#         lookback = self.grid['lookback_time'][z]
+#         grid = self.grid['grid'][:,self.grid['age_mask'][z],:]
+#         wl = self.grid['wavelength']
+# 
+#         job = [mp.Process(target=worker_method, 
+#                           args=(d, idx, key, temp_dict[idx], A, Z, lookback, grid, wl, lambda_nu, tdisp, gamma, gamma_cloud)) \
+#                    for idx in self.galaxies.keys()]
+# 
+#         # start jobs and join
+#         _ = [p.start() for p in job]
+#         _ = [p.join() for p in job]
+# 
+#         # convert dict_proxy to dict
+#         d_perm = d._getvalue()
+# 
+#         # save to class instance
+#         for idx in self.galaxies.keys():
+#             for k in d_perm[idx].keys():
+#                 if k not in ['Metallicity','Age','InitialMass','tau_ism','tau_cloud']:
+#                     self.galaxies[idx]['Spectra'][k] = d_perm[idx][k]
+# 
+# 
+#         self.spectra['Intrinsic %s'%key] = {'grid_name': self.grid['name'],
+#                                             'lambda': self.grid['wavelength'],
+#                                             'units': 'Lsol / AA',
+#                                             'scaler': None}
+# 
+#         self.spectra['Dust %s'%key] = {'grid_name': self.grid['name'],
+#                                        'lambda': self.grid['wavelength'],
+#                                        'units': 'Lsol / AA',
+#                                 'scaler': None}
 
 
     def metallicity_factor(self,z,sf_gas_metallicity,sf_gas_mass,stellar_mass):
